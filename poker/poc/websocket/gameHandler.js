@@ -254,6 +254,14 @@ async function startGame(roomId, rooms, roomReadyStatus, broadcastToRoomFn, star
 
   dealCards(roomId, rooms, startTurnTimerFn, broadcastToRoomFn);
 
+  const starter = room.players[room.currentPlayerIndex];
+  broadcastToRoomFn(roomId, {
+    type: "gameStart",
+    firstPlayer: starter ? starter.playerId : null,
+    points: room.playerPoints || {},
+    loseAt: 30,
+  });
+
   console.log(`🚀 Game started in room ${roomId}`);
 }
 

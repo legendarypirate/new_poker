@@ -252,6 +252,12 @@ function dealCards(roomId, rooms, startTurnTimerFn, broadcastToRoomFn, firstPlay
   broadcastToRoomFn(roomId, {
     type: "turn",
     player: room.players[room.currentPlayerIndex].playerId,
+    lowestCardStart: firstPlayerId === null && !!playerWithLowestCard,
+    lowestCard: lowestCard
+      ? { rank: lowestCard.rank, suit: lowestCard.suit }
+      : null,
+    points: room.playerPoints || {},
+    loseAt: 30,
   });
 
   console.log(`🃏 Dealt ${handSize} cards to ${numPlayers} players in room ${roomId}`);
