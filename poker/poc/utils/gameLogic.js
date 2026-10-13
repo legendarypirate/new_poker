@@ -32,18 +32,17 @@ function calculateRoundPoints(roomId, winnerId, rooms) {
     if (player.playerId !== winnerId) {
       const cardCount = player.hand.length;
       
-      // POINT SYSTEM WITH MULTIPLICATION:
-      let playerPoints = cardCount; // Base points = number of cards
-      
-      // Multiply points based on card count
-      if (cardCount >= 10 && cardCount <= 12) {
-        playerPoints = cardCount * 2; // Double for 10-12 cards
-        console.log(`📊 Player ${player.playerId} has ${cardCount} cards - points DOUBLED to ${playerPoints}`);
-      } else if (cardCount === 13) {
-        playerPoints = cardCount * 3; // Triple for 13 cards
-        console.log(`📊 Player ${player.playerId} has ${cardCount} cards - points TRIPLED to ${playerPoints}`);
+      // Leftover cards become penalty points.
+      // 13 cards → ×3, more than 10 cards → ×2, otherwise the card count.
+      let playerPoints = cardCount;
+      if (cardCount === 13) {
+        playerPoints = 13 * 3;
+        console.log(`📊 Player ${player.playerId} lost with 13 cards → ${playerPoints} (13×3)`);
+      } else if (cardCount > 10) {
+        playerPoints = cardCount * 2;
+        console.log(`📊 Player ${player.playerId} lost with ${cardCount} cards → ${playerPoints} (${cardCount}×2)`);
       } else {
-        console.log(`📊 Player ${player.playerId} has ${cardCount} cards - points: ${playerPoints}`);
+        console.log(`📊 Player ${player.playerId} lost with ${cardCount} cards → ${playerPoints}`);
       }
       
       points[player.playerId] = playerPoints;
@@ -258,6 +257,7 @@ function dealCards(roomId, rooms, startTurnTimerFn, broadcastToRoomFn, firstPlay
       : null,
     points: room.playerPoints || {},
     loseAt: 30,
+    cardCounts: getPlayerCardCounts(room),
   });
 
   console.log(`🃏 Dealt ${handSize} cards to ${numPlayers} players in room ${roomId}`);

@@ -14,6 +14,147 @@ const {
   getRoomGameId
 } = require('./disconnectHandler');
 const db = require('../app/models');
+const { toPublicId } = require('../utils/ids');
+
+const SPECTATOR_LIMIT = 1;
+
+function pruneSpectators(room) {
+  if (!room.spectators) {
+    room.spectators = [];
+    return room.spectators;
+  }
+  room.spectators = room.spectators.filter((s) => s.ws && s.ws.readyState === 1);
+  return room.spectators;
+}
+
+function removeSpectator(room, ws) {
+  if (!room || !room.spectators) return;
+  room.spectators = room.spectators.filter((s) => s.ws !== ws);
+}
+
+function sendSpectatorSnapshot(ws, room, requestedRoomId, actualRoomId, roomReadyStatus) {
+  ws.send(JSON.stringify({
+    type: "roomJoined",
+    roomId: requestedRoomId,
+    isSpectator: true,
+    spectatorLimit: SPECTATOR_LIMIT,
+    actualRoomId,
+    gameStarted: !!room.gameStarted,
+  }));
+
+  ws.send(JSON.stringify({
+    type: "seatedPlayers",
+    players: room.players.map((p) => ({
+      playerId: p.playerId,
+      username: p.username,
+      displayName: p.displayName || p.username,
+      avatarUrl: p.avatarUrl || p.avatar_url || "",
+      userId: p.userId,
+      publicId: toPublicId(p.userId),
+      handCount: p.hand ? p.hand.length : 0,
+    })),
+    spectator: true,
+  }));
+
+  if (room.gameStarted) {
+    ws.send(JSON.stringify({
+      type: "gameStart",
+      points: room.playerPoints || {},
+      loseAt: 30,
+    }));
+  }
+
+  if (room.playerPoints && Object.keys(room.playerPoints).length > 0) {
+    ws.send(JSON.stringify({
+      type: "gameState",
+      points: room.playerPoints,
+      gameEnded: !!room.gameFinished,
+    }));
+  }
+
+  if (roomReadyStatus.has(actualRoomId)) {
+    ws.send(JSON.stringify({
+      type: "playerReadyStatus",
+      status: Object.fromEntries(roomReadyStatus.get(actualRoomId)),
+    }));
+  }
+
+  room.players.forEach((p) => {
+    if (p.hand && p.hand.length > 0) {
+      ws.send(JSON.stringify({
+        type: "hand",
+        hand: p.hand,
+        player: p.playerId,
+        isSpectatorView: true,
+      }));
+    }
+  });
+
+  if (room.lastPlay) {
+    ws.send(JSON.stringify({
+      type: "opponentMove",
+      player: room.lastPlay.player,
+      cards: room.lastPlay.cards,
+      isInitialState: true,
+    }));
+  }
+
+  const turnPlayer = (room.gameType === "texas" && room.texas?.playersOrder && room.texas.actingIndex != null)
+    ? room.texas.playersOrder[room.texas.actingIndex]
+    : room.currentPlayerIndex !== undefined && room.players[room.currentPlayerIndex]
+      ? room.players[room.currentPlayerIndex].playerId
+      : undefined;
+  if (turnPlayer !== undefined) {
+    ws.send(JSON.stringify({ type: "turn", player: turnPlayer }));
+  }
+}
+
+function admitSpectator(ws, room, {
+  username,
+  userId,
+  requestedRoomId,
+  actualRoomId,
+  roomReadyStatus,
+  broadcastToRoom,
+}) {
+  const live = pruneSpectators(room);
+  const existing = live.find((s) => (userId && s.userId === userId) || s.ws === ws);
+  if (existing) {
+    existing.ws = ws;
+    existing.username = username;
+    existing.userId = userId || existing.userId;
+    sendSpectatorSnapshot(ws, room, requestedRoomId, actualRoomId, roomReadyStatus);
+    console.log(`👁️ Spectator ${username} reconnected to room ${actualRoomId}`);
+    return { player: existing, roomId: actualRoomId };
+  }
+
+  if (live.length >= SPECTATOR_LIMIT) {
+    ws.send(JSON.stringify({
+      type: "error",
+      code: "SPECTATOR_FULL",
+      message: "Only one spectator can watch this room",
+    }));
+    return null;
+  }
+
+  const spectator = {
+    ws,
+    username,
+    isSpectator: true,
+    userId: userId || null,
+  };
+  room.spectators.push(spectator);
+  sendSpectatorSnapshot(ws, room, requestedRoomId, actualRoomId, roomReadyStatus);
+  if (typeof broadcastToRoom === "function") {
+    broadcastToRoom(actualRoomId, {
+      type: "spectatorJoined",
+      username,
+      publicId: toPublicId(userId),
+    });
+  }
+  console.log(`👁️ Spectator ${username} joined room ${actualRoomId} (1/${SPECTATOR_LIMIT})`);
+  return { player: spectator, roomId: actualRoomId };
+}
 
 function broadcastToRoom(roomId, message, rooms) {
   const room = rooms[roomId];
@@ -255,11 +396,13 @@ async function startGame(roomId, rooms, roomReadyStatus, broadcastToRoomFn, star
   dealCards(roomId, rooms, startTurnTimerFn, broadcastToRoomFn);
 
   const starter = room.players[room.currentPlayerIndex];
+  const { getPlayerCardCounts } = require('../utils/gameLogic');
   broadcastToRoomFn(roomId, {
     type: "gameStart",
     firstPlayer: starter ? starter.playerId : null,
     points: room.playerPoints || {},
     loseAt: 30,
+    cardCounts: getPlayerCardCounts(room),
   });
 
   console.log(`🚀 Game started in room ${roomId}`);
@@ -400,7 +543,8 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
           username: p.username,
           displayName: p.displayName,
           avatarUrl: p.avatarUrl || p.avatar_url,
-          userId: p.userId
+          userId: p.userId,
+          publicId: toPublicId(p.userId)
         })),
       }));
       return true;
@@ -593,6 +737,7 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
         broadcastToRoom(roomId, {
           type: "turn",
           player: room.players[room.currentPlayerIndex].playerId,
+          cardCounts: getPlayerCardCounts(room),
         }, rooms);
       }
       return true;
@@ -639,9 +784,11 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
       };
       boundStartTurnTimer(roomId);
 
+      const { getPlayerCardCounts } = require('../utils/gameLogic');
       broadcastToRoom(roomId, {
         type: "turn",
         player: room.players[room.currentPlayerIndex].playerId,
+        cardCounts: getPlayerCardCounts(room),
       }, rooms);
       return true;
     }
@@ -987,7 +1134,8 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
             username: p.username,
             displayName: p.displayName || p.username,
             avatarUrl: p.avatarUrl || p.avatar_url || '',
-            userId: p.userId
+            userId: p.userId,
+          publicId: toPublicId(p.userId)
           })),
         })
       );
@@ -1051,83 +1199,20 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
     }
   }
 
-  if (room.players.length >= 4 && !msg.isSpectator) {
-    ws.send(JSON.stringify({ type: "error", message: "Room is full" }));
-    return null;
-  }
+  const maxPlayers = room.maxPlayers || (isTexas ? 9 : 4);
+  const gameInPlay = !!room.gameStarted && !room.gameFinished;
+  const tableFull = room.players.length >= maxPlayers;
+  const shouldSpectate = !!msg.isSpectator || gameInPlay || tableFull;
 
-  // Handle Spectator Join
-  if (msg.isSpectator) {
-    const spectator = {
-      ws,
-      username: username + " (Spectator)",
-      isSpectator: true,
-      userId: userId || null
-    };
-
-    if (!room.spectators) room.spectators = [];
-    room.spectators.push(spectator);
-
-    console.log(`👁️ Spectator ${username} joined room ${actualRoomId}. Total spectators: ${room.spectators.length}`);
-
-    ws.send(
-      JSON.stringify({
-        type: "roomJoined",
-        roomId: requestedRoomId,
-        isSpectator: true,
-        actualRoomId: actualRoomId,
-      })
-    );
-
-    // Send current game state to spectator
-    ws.send(JSON.stringify({
-      type: "seatedPlayers",
-      players: room.players.map((p) => ({
-        playerId: p.playerId,
-        username: p.username,
-        displayName: p.displayName || p.username,
-        avatarUrl: p.avatarUrl || p.avatar_url || '',
-        userId: p.userId,
-        handCount: p.hand ? p.hand.length : 0
-      })),
-    }));
-
-    if (roomReadyStatus.has(actualRoomId)) {
-      ws.send(JSON.stringify({
-        type: "playerReadyStatus",
-        status: Object.fromEntries(roomReadyStatus.get(actualRoomId))
-      }));
-    }
-
-    // Send all players' hands to spectator
-    room.players.forEach(p => {
-      if (p.hand && p.hand.length > 0) {
-        ws.send(JSON.stringify({
-          type: "hand",
-          hand: p.hand,
-          player: p.playerId,
-          isSpectatorView: true
-        }));
-      }
+  if (shouldSpectate) {
+    return admitSpectator(ws, room, {
+      username,
+      userId,
+      requestedRoomId,
+      actualRoomId,
+      roomReadyStatus,
+      broadcastToRoom,
     });
-
-    if (room.lastPlay) {
-      ws.send(JSON.stringify({
-        type: "opponentMove",
-        player: room.lastPlay.player, // We might need to store player in lastPlay
-        cards: room.lastPlay.cards,
-        isInitialState: true
-      }));
-    }
-
-    const spectatorTurnPlayer = (room.gameType === 'texas' && room.texas?.playersOrder && room.texas.actingIndex != null)
-      ? room.texas.playersOrder[room.texas.actingIndex]
-      : room.currentPlayerIndex !== undefined && room.players[room.currentPlayerIndex] ? room.players[room.currentPlayerIndex].playerId : undefined;
-    if (spectatorTurnPlayer !== undefined) {
-      ws.send(JSON.stringify({ type: "turn", player: spectatorTurnPlayer }));
-    }
-
-    return { spectator, roomId: actualRoomId };
   }
 
   // Assign playerId based on join order (sequential, no gap filling)
@@ -1193,7 +1278,8 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
       username: p.username,
       displayName: p.displayName || p.username,
       avatarUrl: p.avatarUrl || p.avatar_url || '',
-      userId: p.userId
+      userId: p.userId,
+          publicId: toPublicId(p.userId)
     })),
   }));
 
@@ -1211,7 +1297,8 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
       username: p.username,
       displayName: p.displayName || p.username,
       avatarUrl: p.avatarUrl || p.avatar_url || '',
-      userId: p.userId
+      userId: p.userId,
+          publicId: toPublicId(p.userId)
     })),
   };
 
@@ -1277,6 +1364,11 @@ async function handlePlayerDisconnect(roomId, player, rooms, roomReadyStatus, br
   if (!roomId || !rooms[roomId] || !player) return;
 
   const room = rooms[roomId];
+  if (player.isSpectator) {
+    removeSpectator(room, player.ws);
+    console.log(`👁️ Spectator left room ${roomId}`);
+    return;
+  }
   const gameId = room.gameId || getRoomGameId(roomId);
 
   // If game has started and player has userId, handle disconnect timer

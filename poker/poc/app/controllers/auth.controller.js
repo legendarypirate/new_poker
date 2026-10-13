@@ -5,6 +5,7 @@ const User = db.users;
 const { Op } = db.Sequelize;
 const secretKey = process.env.JWT_SECRET || "your_secret_key";
 const axios = require("axios");
+const { toPublicId } = require("../../utils/ids");
 const TOKEN_TTL = "7d";
 const STARTING_BALANCE = 50000;
 
@@ -19,6 +20,7 @@ function signToken(user) {
 function publicUser(user) {
   return {
     id: user.id,
+    public_id: toPublicId(user.id),
     username: user.username,
     display_name: user.display_name || user.username,
     role: user.role,

@@ -24,14 +24,16 @@ function startTurnTimer(roomId, rooms, broadcastToRoom, autoPassFn) {
     return;
   }
   
+  const TURN_SECONDS = 20;
+
   broadcastToRoom(roomId, {
     type: "timerUpdate",
     player: currentPlayer.playerId,
-    remainingTime: 15,
-    totalTime: 15
+    remainingTime: TURN_SECONDS,
+    totalTime: TURN_SECONDS
   }, rooms);
 
-  let timeLeft = 15;
+  let timeLeft = TURN_SECONDS;
   
   const timerInterval = setInterval(() => {
     // Check if room still exists before each update
@@ -46,7 +48,7 @@ function startTurnTimer(roomId, rooms, broadcastToRoom, autoPassFn) {
       type: "timerUpdate",
       player: currentPlayer.playerId,
       remainingTime: timeLeft,
-      totalTime: 15
+      totalTime: TURN_SECONDS
     }, rooms);
 
     if (timeLeft <= 0) {

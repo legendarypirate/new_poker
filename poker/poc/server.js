@@ -161,6 +161,17 @@ wss.on("connection", (ws, req) => {
         return;
       }
 
+      if (player.isSpectator) {
+        const room = rooms[roomId];
+        if (room.spectators) {
+          room.spectators = room.spectators.filter((s) => s.ws !== ws);
+        }
+        console.log(`👁️ Spectator left room ${roomId}`);
+        player = null;
+        roomId = null;
+        return;
+      }
+
       // Wrap in async IIFE to handle await properly
       (async () => {
         const { handlePlayerDisconnect } = require('./websocket/gameHandler');
