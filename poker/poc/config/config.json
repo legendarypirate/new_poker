@@ -1,0 +1,26 @@
+{
+  "development": {
+    "username": "postgres",
+    "password": "Joker0328",
+    "database": "poker",
+    "host": "localhost",
+    "dialect": "postgres",
+    "port": 5432
+  },
+  "test": {
+    "username": "postgres",
+    "password": "Joker0328",
+    "database": "poker",
+    "host": "localhost",
+    "dialect": "postgres",
+    "port": 5432
+  },
+  "production": {
+    "username": "postgres",
+    "password": "Joker0328",
+    "database": "poker",
+    "host": "localhost",
+    "dialect": "postgres",
+    "port": 5432
+  }
+}
