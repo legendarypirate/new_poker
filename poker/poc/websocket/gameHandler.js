@@ -406,19 +406,24 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
       }
 
       const readyStatus = roomReadyStatus.get(roomId);
-      readyStatus.set(player.playerId, ready);
+      readyStatus.set(player.playerId, !!ready);
+
+      const currentIds = new Set(room.players.map((p) => p.playerId));
+      for (const id of Array.from(readyStatus.keys())) {
+        if (!currentIds.has(id)) readyStatus.delete(id);
+      }
 
       broadcastToRoom(roomId, {
         type: "playerReadyStatus",
         status: Object.fromEntries(readyStatus)
       }, rooms);
 
-      const readyPlayers = Array.from(readyStatus.values()).filter(Boolean).length;
       const totalPlayers = room.players.length;
+      const readyPlayers = room.players.filter((p) => readyStatus.get(p.playerId)).length;
 
       console.log(`✅ Player ${player.playerId} ready: ${ready} (${readyPlayers}/${totalPlayers} ready)`);
 
-      // Only start countdown when ALL players are ready
+      // Only start countdown when ALL seated players are ready
       if (readyPlayers === totalPlayers && totalPlayers >= 2) {
         console.log(`🚀 All ${totalPlayers} players ready, starting countdown in room ${roomId}`);
         const { startAutoStartCountdown } = require('./timerUtils');
@@ -441,10 +446,12 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
 
     case "startGame": {
       const readyStatus = roomReadyStatus.get(roomId);
-      const readyPlayers = readyStatus ? Array.from(readyStatus.values()).filter(Boolean).length : 0;
       const totalPlayers = room.players.length;
+      const readyPlayers = readyStatus
+        ? room.players.filter((p) => readyStatus.get(p.playerId)).length
+        : 0;
 
-      // Require ALL players to be ready before starting
+      // Require ALL seated players to be ready before starting
       if (readyPlayers === totalPlayers && totalPlayers >= 2) {
         console.log(`🎮 Manual game start in room ${roomId} (all ${totalPlayers} players ready)`);
         const { cancelAutoStart, startTurnTimer } = require('./timerUtils');
@@ -1156,6 +1163,9 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
   }
   const readyStatus = roomReadyStatus.get(roomId);
   readyStatus.set(playerId, false);
+  if (!room.gameStarted) {
+    cancelAutoStart(roomId, rooms);
+  }
 
       ws.send(
         JSON.stringify({

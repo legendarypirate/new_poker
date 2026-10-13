@@ -76,7 +76,8 @@ function startAutoStartCountdown(roomId, rooms, broadcastToRoom, startGame) {
   if (!room) return;
   
   if (room.autoStartTimer) {
-    clearTimeout(room.autoStartTimer);
+    clearInterval(room.autoStartTimer);
+    room.autoStartTimer = null;
   }
 
   // Start countdown from 3, then 2, then 1, then start game
@@ -113,7 +114,7 @@ function startAutoStartCountdown(roomId, rooms, broadcastToRoom, startGame) {
 function cancelAutoStart(roomId, rooms) {
   const room = rooms[roomId];
   if (room && room.autoStartTimer) {
-    clearTimeout(room.autoStartTimer);
+    clearInterval(room.autoStartTimer);
     room.autoStartTimer = null;
   }
 }
