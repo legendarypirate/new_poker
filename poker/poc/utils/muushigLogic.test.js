@@ -93,6 +93,8 @@ const oldTrump = { ...dealRoom.muushig.trump };
 const flipped = logic.navshihKhozer(dealRoom, dealRoom.players[dealRoom.muushig.dealerIndex]);
 assert.strictEqual(flipped.ok, true);
 assert.notStrictEqual(flipped.trump.rank + flipped.trump.suit, oldTrump.rank + oldTrump.suit);
+assert.strictEqual(dealRoom.muushig.trump.rank + dealRoom.muushig.trump.suit, flipped.trump.rank + flipped.trump.suit);
+assert.strictEqual(dealRoom.muushig.phase, 'khozer');
 assert.strictEqual(dealRoom.muushig.khozerNavshihed, true);
 assert.strictEqual(logic.canNavshihKhozer(dealRoom, dealRoom.players[dealRoom.muushig.dealerIndex].playerId), false);
 logic.finishKhozerPhase(dealRoom);
@@ -108,5 +110,26 @@ const mustLeadAce = logic.legalPlayCards(
   '♠'
 );
 assert.deepStrictEqual(mustLeadAce.map((c) => c.rank + c.suit), ['A♠']);
+
+const clubTrumpWins = logic.trickWinner([
+  { playerId: 1, card: { rank: 'A', suit: '♥' } },
+  { playerId: 2, card: { rank: '7', suit: '♣' } },
+  { playerId: 3, card: { rank: 'K', suit: '♦' } },
+], '♣');
+assert.strictEqual(clubTrumpWins, 2);
+
+const cannotDump = logic.legalPlayCards(
+  [{ rank: '9', suit: '♦' }, { rank: '8', suit: '♥' }],
+  [{ playerId: 1, card: { rank: '10', suit: '♥' } }],
+  '♣'
+);
+assert.deepStrictEqual(cannotDump.map((c) => c.rank + c.suit), ['8♥']);
+
+const mustEatWithTrump = logic.legalPlayCards(
+  [{ rank: '9', suit: '♦' }, { rank: '7', suit: '♣' }],
+  [{ playerId: 1, card: { rank: '10', suit: '♥' } }],
+  '♣'
+);
+assert.deepStrictEqual(mustEatWithTrump.map((c) => c.rank + c.suit), ['7♣']);
 
 console.log('muushigLogic tests passed');

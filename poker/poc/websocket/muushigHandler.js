@@ -216,14 +216,15 @@ function playCard(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, card
     return { ok: false, error: 'Must follow suit or play khozer' };
   }
 
-  player.hand = removeCardsFromHand(player.hand, [card]);
-  state.trick.push({ playerId: player.playerId, card });
-  room.lastPlay = { cards: [card], player: player.playerId };
+  const played = muushig.normalizeCard(card);
+  player.hand = removeCardsFromHand(player.hand, [played]);
+  state.trick.push({ playerId: player.playerId, card: played });
+  room.lastPlay = { cards: [played], player: player.playerId };
 
   broadcastToRoom(roomId, {
     type: 'opponentMove',
     player: player.playerId,
-    cards: [card],
+    cards: [played],
     cardCounts: getPlayerCardCounts(room),
     tricksWon: state.tricksWon,
     ...muushig.publicState(room),
@@ -247,6 +248,19 @@ function handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, 
   if (navshih) {
     const result = muushig.navshihKhozer(room, player);
     if (!result.ok) return result;
+    sendHands(room);
+    broadcastToRoom(roomId, {
+      type: 'muushigKhozer',
+      ...muushig.publicState(room),
+      player: player.playerId,
+      navshihed: true,
+      trump: room.muushig.trump,
+      trumpSuit: room.muushig.trumpSuit,
+      phase: 'khozer',
+      cardCounts: getPlayerCardCounts(room),
+    }, rooms);
+    startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+    return { ok: true, navshihed: true };
   }
   muushig.finishKhozerPhase(room);
   sendHands(room);
@@ -254,11 +268,11 @@ function handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, 
     type: 'muushigKhozer',
     ...muushig.publicState(room),
     player: player.playerId,
-    navshihed: !!navshih,
+    navshihed: false,
     cardCounts: getPlayerCardCounts(room),
   }, rooms);
   startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
-  return { ok: true, navshihed: !!navshih };
+  return { ok: true, navshihed: false };
 }
 
 function handleEnterDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, enter) {
@@ -294,15 +308,14 @@ function handleMuushigMove(roomId, rooms, broadcastToRoom, startTurnTimerFn, pla
   }
   clearTurnTimer(roomId, rooms);
 
-  if (state.phase === 'khozer' || action === 'navshihKhozer' || action === 'keepKhozer') {
-    return handleKhozerDecision(
-      roomId,
-      rooms,
-      broadcastToRoom,
-      startTurnTimerFn,
-      player,
-      action === 'navshihKhozer'
-    );
+  if (state.phase === 'khozer') {
+    if (action === 'navshihKhozer') {
+      return handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, true);
+    }
+    if (action === 'keepKhozer' || action === 'enter') {
+      return handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, false);
+    }
+    return { ok: false, error: 'Keep or navshih khozer' };
   }
 
   if (state.phase === 'enter' || action === 'enter' || action === 'sitOut') {

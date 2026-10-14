@@ -13,8 +13,38 @@ function rankValue(rank) {
   return value < 0 ? -1 : value;
 }
 
+function normalizeSuit(suit) {
+  const value = String(suit || '').trim().toLowerCase();
+  if (value === '♥' || value === '♡' || value === 'h' || value === 'hearts' || value.includes('бунд')) {
+    return '♥';
+  }
+  if (value === '♦' || value === '♢' || value === 'd' || value === 'diamonds' || value.includes('дөрвөлжин')) {
+    return '♦';
+  }
+  if (
+    value === '♣' ||
+    value === '♧' ||
+    value === 'c' ||
+    value === 'clubs' ||
+    value.includes('цэцэг') ||
+    value.includes('хөндлөн')
+  ) {
+    return '♣';
+  }
+  if (value === '♠' || value === '♤' || value === 's' || value === 'spades' || value.includes('гил')) {
+    return '♠';
+  }
+  return String(suit || '');
+}
+
+function normalizeCard(card) {
+  if (!card) return card;
+  return { rank: String(card.rank), suit: normalizeSuit(card.suit) };
+}
+
 function sameCard(a, b) {
-  return a && b && a.rank === b.rank && a.suit === b.suit;
+  if (!a || !b) return false;
+  return a.rank === b.rank && normalizeSuit(a.suit) === normalizeSuit(b.suit);
 }
 
 function createMuushigDeck() {
@@ -50,9 +80,9 @@ function emptyByPlayer(room, value = false) {
 function dealMuushigRound(room) {
   const deck = createMuushigDeck();
   for (const player of room.players) {
-    player.hand = deck.splice(0, HAND_SIZE);
+    player.hand = deck.splice(0, HAND_SIZE).map(normalizeCard);
   }
-  const trump = deck.shift();
+  const trump = normalizeCard(deck.shift());
   const previous = room.muushig;
   const dealerIndex = previous
     ? (previous.dealerIndex + 1) % room.players.length
@@ -91,8 +121,8 @@ function navshihKhozer(room, player) {
   if (!canNavshihKhozer(room, player.playerId)) {
     return { ok: false, error: 'Cannot navshih khozer' };
   }
-  const next = state.stock.shift();
-  state.stock.push(state.trump);
+  const next = normalizeCard(state.stock.shift());
+  state.stock.push(normalizeCard(state.trump));
   state.trump = next;
   state.trumpSuit = next.suit;
   state.khozerNavshihed = true;
@@ -215,7 +245,7 @@ function exchangeCards(room, player, cards) {
     state.trumpTaken = true;
   }
   while (drawn.length < cards.length && state.stock.length > 0) {
-    drawn.push(state.stock.shift());
+    drawn.push(normalizeCard(state.stock.shift()));
   }
   player.hand.push(...drawn);
   state.exchanged[player.playerId] = true;
@@ -242,24 +272,34 @@ function trumpAce(trumpSuit) {
   return { rank: 'A', suit: trumpSuit };
 }
 
+function playCardOf(play) {
+  return normalizeCard(play?.card || play);
+}
+
 function legalPlayCards(hand, trick, trumpSuit) {
+  const trump = normalizeSuit(trumpSuit);
+  const held = (hand || []).map(normalizeCard);
   if (!trick.length) {
-    const ace = hand.find((card) => card.rank === 'A' && card.suit === trumpSuit);
-    return ace ? [ace] : hand.slice();
+    const ace = held.find((card) => card.rank === 'A' && card.suit === trump);
+    return ace ? [ace] : held.slice();
   }
-  const leadSuit = trick[0].card.suit;
-  const sameSuit = hand.filter((card) => card.suit === leadSuit);
+  const leadSuit = playCardOf(trick[0]).suit;
+  const sameSuit = held.filter((card) => card.suit === leadSuit);
   if (sameSuit.length) {
     const highestLead = Math.max(
       ...trick
-        .filter((play) => play.card.suit === leadSuit)
-        .map((play) => rankValue(play.card.rank))
+        .map(playCardOf)
+        .filter((card) => card.suit === leadSuit)
+        .map((card) => rankValue(card.rank))
     );
     const higher = sameSuit.filter((card) => rankValue(card.rank) > highestLead);
     return higher.length ? higher : sameSuit;
   }
-  const trumps = hand.filter((card) => card.suit === trumpSuit);
-  return trumps.length ? trumps : hand.slice();
+  if (leadSuit !== trump) {
+    const trumps = held.filter((card) => card.suit === trump);
+    if (trumps.length) return trumps;
+  }
+  return held.slice();
 }
 
 function isLegalPlay(hand, card, trick, trumpSuit) {
@@ -272,10 +312,16 @@ function lowestLegalCard(hand, trick, trumpSuit) {
 }
 
 function trickWinner(trick, trumpSuit) {
-  const trumps = trick.filter((play) => play.card.suit === trumpSuit);
+  const trump = normalizeSuit(trumpSuit);
+  const plays = trick.map((play) => ({
+    playerId: play.playerId ?? play.player,
+    card: playCardOf(play),
+  }));
+  const trumps = plays.filter((play) => play.card.suit === trump);
+  const leadSuit = plays[0].card.suit;
   const pool = trumps.length
     ? trumps
-    : trick.filter((play) => play.card.suit === trick[0].card.suit);
+    : plays.filter((play) => play.card.suit === leadSuit);
   return pool.reduce((best, play) =>
     rankValue(play.card.rank) > rankValue(best.card.rank) ? play : best
   ).playerId;
@@ -373,4 +419,6 @@ module.exports = {
   sameCard,
   trumpAce,
   emptyByPlayer,
+  normalizeSuit,
+  normalizeCard,
 };
