@@ -15,6 +15,24 @@ const {
 } = require('./disconnectHandler');
 const db = require('../app/models');
 const { toPublicId } = require('../utils/ids');
+const {
+  startMuushigGame,
+  handleMuushigMove,
+  handleMuushigPass,
+  handleMuushigRestart,
+  autoMuushigTimeout,
+} = require('./muushigHandler');
+const muushigLogic = require('../utils/muushigLogic');
+
+function maxPlayersFor(gameType) {
+  if (gameType === 'texas') return 9;
+  if (gameType === 'muushig') return 5;
+  return 4;
+}
+
+function isMuushigRoom(room) {
+  return (room?.gameType || '') === 'muushig';
+}
 
 const SPECTATOR_LIMIT = 1;
 
@@ -60,7 +78,9 @@ function sendSpectatorSnapshot(ws, room, requestedRoomId, actualRoomId, roomRead
     ws.send(JSON.stringify({
       type: "gameStart",
       points: room.playerPoints || {},
-      loseAt: 30,
+      loseAt: isMuushigRoom(room) ? muushigLogic.WIN_AT : 30,
+      startPoints: isMuushigRoom(room) ? muushigLogic.START_POINTS : undefined,
+      ...(isMuushigRoom(room) ? muushigLogic.publicState(room) : {}),
     }));
   }
 
@@ -188,7 +208,7 @@ function broadcastPlayerCount(roomId, rooms, wss = null) {
     type: "playerCount",
     roomId: displayRoomId, // Send original room ID to client
     players: count,
-    maxPlayers: 4,
+    maxPlayers: room.maxPlayers || maxPlayersFor(room.gameType),
   };
 
   // Broadcast to players in the room
@@ -212,6 +232,10 @@ function broadcastPlayerCount(roomId, rooms, wss = null) {
 function autoPass(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
   const { clearTurnTimer } = require('./timerUtils');
   const room = rooms[roomId];
+  if (room && isMuushigRoom(room)) {
+    autoMuushigTimeout(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+    return;
+  }
   if (!room || room.players.length === 0) {
     console.log(`⚠️ Room ${roomId} not found or empty during auto-pass`);
     clearTurnTimer(roomId, rooms);
@@ -291,12 +315,12 @@ async function startGame(roomId, rooms, roomReadyStatus, broadcastToRoomFn, star
   const isTexas = room.gameType === 'texas';
   const numPlayers = room.players.length;
 
-  if (isTexas && numPlayers < 2) {
-    console.error(`❌ Texas Hold'em requires at least 2 players`);
+  if ((isTexas || isMuushigRoom(room)) && numPlayers < 2) {
+    console.error(`❌ ${room.gameType} requires at least 2 players`);
     return;
   }
 
-  console.log(`🎮 Starting ${isTexas ? 'Texas Hold\'em' : 'game'} in room ${roomId} with ${numPlayers} players`);
+  console.log(`🎮 Starting ${room.gameType || 'game'} in room ${roomId} with ${numPlayers} players`);
 
   if (roomReadyStatus.has(roomId)) {
     roomReadyStatus.delete(roomId);
@@ -334,9 +358,11 @@ async function startGame(roomId, rooms, roomReadyStatus, broadcastToRoomFn, star
     console.error(`❌ Error creating game record:`, error);
   }
 
-  room.playerPoints = {};
-  for (let player of room.players) {
-    room.playerPoints[player.playerId] = 0;
+  if (!isMuushigRoom(room)) {
+    room.playerPoints = {};
+    for (let player of room.players) {
+      room.playerPoints[player.playerId] = 0;
+    }
   }
 
   room.gameStarted = true;
@@ -385,6 +411,11 @@ async function startGame(roomId, rooms, roomReadyStatus, broadcastToRoomFn, star
     }, rooms);
     broadcastToRoomFn(roomId, { type: 'gameStart' }, rooms);
     console.log(`🚀 Texas Hold'em hand started in room ${roomId}`);
+    return;
+  }
+
+  if (isMuushigRoom(room)) {
+    startMuushigGame(roomId, rooms, broadcastToRoomFn, startTurnTimerFn);
     return;
   }
 
@@ -519,6 +550,22 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
         });
       }
       broadcastToRoom(roomId, { type: 'gameOver', winner: result.winner, isTexas: true }, rooms);
+    }
+    return true;
+  }
+
+  if (isMuushigRoom(room) && (msg.type === 'move' || msg.type === 'pass' || msg.type === 'restart')) {
+    const { startTurnTimer } = require('./timerUtils');
+    const boundStartTurnTimer = (id) => {
+      startTurnTimer(id, rooms, broadcastToRoom, (id) => autoPass(id, rooms, broadcastToRoom, boundStartTurnTimer));
+    };
+    const result = msg.type === 'move'
+      ? handleMuushigMove(roomId, rooms, broadcastToRoom, boundStartTurnTimer, player, msg.cards)
+      : msg.type === 'pass'
+        ? handleMuushigPass(roomId, rooms, broadcastToRoom, boundStartTurnTimer, player)
+        : handleMuushigRestart(roomId, rooms, broadcastToRoom, boundStartTurnTimer);
+    if (!result.ok) {
+      ws.send(JSON.stringify({ type: 'error', message: result.error || 'Invalid action' }));
     }
     return true;
   }
@@ -860,6 +907,7 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
   // Normalize buyIn: ensure it's a number
   const buyIn = msg.buyIn !== undefined ? Number(msg.buyIn) : (msg.buy_in !== undefined ? Number(msg.buy_in) : null);
   const gameType = msg.gameType || msg.game_type || 'mongol_13'; // Default game type
+  const isMuushig = gameType === 'muushig';
 
   // Texas Hold'em: single table per buy-in, no room selection — join "texas_20k" etc.
   const isTexas = gameType === 'texas';
@@ -912,12 +960,22 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
     compositeRoomId = requestedRoomId;
   }
 
+  if (isMuushig && !buyIn) {
+    compositeRoomId = requestedRoomId.startsWith('muushig_')
+      ? requestedRoomId
+      : `muushig_${requestedRoomId}`;
+  }
+
   // If buyIn is not provided (non-Texas, non-Cash only), try to find existing room with same base roomId
   if (!buyIn && !isTexas && !isCash) {
     // Look for existing room with same base roomId (could be with any buyIn)
     const existingRoomKey = Object.keys(rooms).find(key => {
-      const baseKey = key.replace(/_\d+k$/, '');
-      return baseKey === requestedRoomId;
+      const baseKey = key.replace(/_\d+k$/, '').replace(/^muushig_/, '');
+      const sameCode = baseKey === requestedRoomId
+        || key === requestedRoomId
+        || key === `muushig_${requestedRoomId}`;
+      const sameType = (rooms[key].gameType || 'mongol_13') === gameType;
+      return sameCode && sameType;
     });
 
     if (existingRoomKey) {
@@ -1059,11 +1117,15 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
       tournamentId: tournamentId || null,
       originalRoomId: requestedRoomId, // Keep original for display purposes
       spectators: [], // Initialize spectators array
-      maxPlayers: isTexas ? 9 : 4
+      maxPlayers: maxPlayersFor(gameType)
     };
   } else {
     const existingRoom = rooms[actualRoomId];
     console.log(`✅ Room exists: ${actualRoomId} with ${existingRoom.players.length} players`);
+    if (existingRoom.gameType && existingRoom.gameType !== gameType) {
+      ws.send(JSON.stringify({ type: "error", message: "This room is for a different game" }));
+      return null;
+    }
     if (isTexas && existingRoom.players.length >= 9) {
       ws.send(JSON.stringify({ type: "error", message: "Texas Hold'em table is full (max 9 players)" }));
       return null;
@@ -1199,7 +1261,7 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
     }
   }
 
-  const maxPlayers = room.maxPlayers || (isTexas ? 9 : 4);
+  const maxPlayers = room.maxPlayers || maxPlayersFor(room.gameType || gameType);
   const gameInPlay = !!room.gameStarted && !room.gameFinished;
   const tableFull = room.players.length >= maxPlayers;
   const shouldSpectate = !!msg.isSpectator || gameInPlay || tableFull;
@@ -1328,7 +1390,7 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
   // broadcastPlayerCount is a bound function that includes wss, so call with just roomId
   broadcastPlayerCount(roomId);
 
-  console.log(`🎮 Player ${playerId} joined room ${roomId} (${username}). Room now has ${room.players.length}/4 players.`);
+  console.log(`🎮 Player ${playerId} joined room ${roomId} (${username}). Room now has ${room.players.length}/${room.maxPlayers || maxPlayersFor(room.gameType)} players.`);
 
   return { player, roomId: actualRoomId };
 }

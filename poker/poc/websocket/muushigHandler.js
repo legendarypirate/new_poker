@@ -1,0 +1,309 @@
+const { removeCardsFromHand } = require('../utils/cardUtils');
+const { getPlayerCardCounts } = require('../utils/gameLogic');
+const muushig = require('../utils/muushigLogic');
+
+function sendHands(room, extra = {}) {
+  const counts = getPlayerCardCounts(room);
+  for (const player of room.players) {
+    if (player.ws && player.ws.readyState === 1) {
+      player.ws.send(JSON.stringify({
+        type: 'hand',
+        hand: player.hand,
+        player: player.playerId,
+        cardCounts: counts,
+        ...extra,
+      }));
+    }
+  }
+}
+
+function broadcastTurn(roomId, rooms, broadcastToRoom) {
+  const room = rooms[roomId];
+  const current = room.players[room.currentPlayerIndex];
+  broadcastToRoom(roomId, {
+    type: 'turn',
+    player: current ? current.playerId : null,
+    cardCounts: getPlayerCardCounts(room),
+    points: room.playerPoints || {},
+    loseAt: muushig.WIN_AT,
+    startPoints: muushig.START_POINTS,
+    ...muushig.publicState(room),
+  }, rooms);
+}
+
+function startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
+  if (typeof startTurnTimerFn === 'function') {
+    startTurnTimerFn(roomId);
+  }
+  broadcastTurn(roomId, rooms, broadcastToRoom);
+}
+
+function finishByWinner(roomId, rooms, broadcastToRoom, winnerPlayer, extra = {}) {
+  const room = rooms[roomId];
+  room.gameFinished = true;
+  room.gameStarted = true;
+
+  const { handleGameFinish, saveUserStatistics } = require('../utils/gameLogic');
+  handleGameFinish(roomId, room, winnerPlayer.userId, winnerPlayer.playerId).catch((err) => {
+    console.error('Error finishing muushig game:', err);
+  });
+  saveUserStatistics(room, winnerPlayer.playerId, rooms).catch((err) => {
+    console.error('Error saving muushig stats:', err);
+  });
+
+  const { clearPlayerState } = require('./disconnectHandler');
+  for (const player of room.players) {
+    if (player.userId && room.gameId) {
+      clearPlayerState(player.userId, room.gameId).catch(() => {});
+    }
+  }
+
+  broadcastToRoom(roomId, {
+    type: 'gameOver',
+    winner: winnerPlayer.playerId,
+    points: room.playerPoints || {},
+    gameType: 'muushig',
+    ...extra,
+  }, rooms);
+}
+
+function maybeInstantWin(roomId, rooms, broadcastToRoom) {
+  const room = rooms[roomId];
+  const winner = muushig.findFourAcesWinner(room);
+  if (!winner) return false;
+  for (const player of room.players) {
+    room.playerPoints[player.playerId] = player.playerId === winner.playerId ? 0 : 15;
+  }
+  finishByWinner(roomId, rooms, broadcastToRoom, winner, { fourAces: true });
+  return true;
+}
+
+function beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, { restarted = false } = {}) {
+  const room = rooms[roomId];
+  muushig.ensureMuushigPoints(room);
+  muushig.dealMuushigRound(room);
+  room.gameStarted = true;
+  room.gameFinished = false;
+
+  sendHands(room, muushig.publicState(room));
+  broadcastToRoom(roomId, {
+    type: restarted ? 'gameRestarted' : 'gameStart',
+    firstPlayer: room.players[room.currentPlayerIndex]?.playerId,
+    cardCounts: getPlayerCardCounts(room),
+    points: room.playerPoints,
+    loseAt: muushig.WIN_AT,
+    startPoints: muushig.START_POINTS,
+    ...muushig.publicState(room),
+  }, rooms);
+
+  if (maybeInstantWin(roomId, rooms, broadcastToRoom)) return;
+  startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+}
+
+function startMuushigGame(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
+  const room = rooms[roomId];
+  muushig.resetMuushigPoints(room);
+  beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+}
+
+function nextPlayerIndex(room) {
+  return (room.currentPlayerIndex + 1) % room.players.length;
+}
+
+function completeExchangeIfNeeded(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
+  const room = rooms[roomId];
+  if (!muushig.allExchanged(room)) return false;
+  if (maybeInstantWin(roomId, rooms, broadcastToRoom)) return true;
+  muushig.startPlayPhase(room);
+  sendHands(room, muushig.publicState(room));
+  broadcastToRoom(roomId, {
+    type: 'muushigState',
+    ...muushig.publicState(room),
+    points: room.playerPoints,
+    cardCounts: getPlayerCardCounts(room),
+  }, rooms);
+  startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+  return true;
+}
+
+function finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
+  const room = rooms[roomId];
+  const state = room.muushig;
+  const winnerId = muushig.trickWinner(state.trick, state.trumpSuit);
+  state.tricksWon[winnerId] = (state.tricksWon[winnerId] || 0) + 1;
+  const trickCards = state.trick.map((play) => play.card);
+  broadcastToRoom(roomId, {
+    type: 'trickOver',
+    winner: winnerId,
+    cards: trickCards,
+    tricksWon: state.tricksWon,
+    cardCounts: getPlayerCardCounts(room),
+    ...muushig.publicState(room),
+  }, rooms);
+
+  const handsEmpty = room.players.every((player) => player.hand.length === 0);
+  if (handsEmpty) {
+    const deltas = muushig.applyRoundScores(room);
+    const winners = muushig.finishedWinners(room);
+    broadcastToRoom(roomId, {
+      type: 'playerWonRound',
+      winner: winnerId,
+      points: deltas,
+      totalPoints: room.playerPoints,
+      tricksWon: state.tricksWon,
+    }, rooms);
+    broadcastToRoom(roomId, {
+      type: 'roundOver',
+      winner: winnerId,
+      points: deltas,
+      totalPoints: room.playerPoints,
+      loseAt: muushig.WIN_AT,
+      gameEnded: winners.length > 0,
+    }, rooms);
+
+    if (winners.length > 0) {
+      const winnerPlayer = room.players.find((p) => p.playerId === winners[0]);
+      finishByWinner(roomId, rooms, broadcastToRoom, winnerPlayer);
+      return;
+    }
+
+    setTimeout(() => {
+      if (!rooms[roomId] || rooms[roomId].gameFinished) return;
+      broadcastToRoom(roomId, { type: 'newRoundStart' }, rooms);
+      beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+    }, 2200);
+    return;
+  }
+
+  const winnerIndex = room.players.findIndex((player) => player.playerId === winnerId);
+  room.currentPlayerIndex = winnerIndex >= 0 ? winnerIndex : 0;
+  state.trick = [];
+  room.lastPlay = null;
+  setTimeout(() => {
+    if (!rooms[roomId] || rooms[roomId].gameFinished) return;
+    startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+  }, 800);
+}
+
+function playCard(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, card) {
+  const room = rooms[roomId];
+  const state = room.muushig;
+  if (!muushig.cardsOwned(player.hand, [card])) {
+    return { ok: false, error: 'Cards not in hand' };
+  }
+  if (!muushig.isLegalPlay(player.hand, card, state.trick, state.trumpSuit)) {
+    return { ok: false, error: 'Must follow suit or play trump' };
+  }
+
+  player.hand = removeCardsFromHand(player.hand, [card]);
+  state.trick.push({ playerId: player.playerId, card });
+  room.lastPlay = { cards: [card], player: player.playerId };
+
+  broadcastToRoom(roomId, {
+    type: 'opponentMove',
+    player: player.playerId,
+    cards: [card],
+    cardCounts: getPlayerCardCounts(room),
+    tricksWon: state.tricksWon,
+    ...muushig.publicState(room),
+  }, rooms);
+
+  if (state.trick.length >= room.players.length) {
+    finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+    return { ok: true, trickComplete: true };
+  }
+
+  room.currentPlayerIndex = nextPlayerIndex(room);
+  startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+  return { ok: true };
+}
+
+function handleMuushigMove(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, cards) {
+  const room = rooms[roomId];
+  const state = room.muushig;
+  if (!state || room.gameFinished) {
+    return { ok: false, error: 'Game not in progress' };
+  }
+  if (room.players[room.currentPlayerIndex]?.playerId !== player.playerId) {
+    return { ok: false, error: 'Not your turn' };
+  }
+
+  if (state.phase === 'exchange') {
+    const result = muushig.exchangeCards(room, player, cards || []);
+    if (!result.ok) return result;
+    if (player.ws && player.ws.readyState === 1) {
+      player.ws.send(JSON.stringify({
+        type: 'hand',
+        hand: player.hand,
+        player: player.playerId,
+        drawn: result.drawn,
+        cardCounts: getPlayerCardCounts(room),
+        ...muushig.publicState(room),
+      }));
+    }
+    broadcastToRoom(roomId, {
+      type: 'opponentPass',
+      player: player.playerId,
+      exchanged: true,
+      cardCounts: getPlayerCardCounts(room),
+      ...muushig.publicState(room),
+    }, rooms);
+    if (!completeExchangeIfNeeded(roomId, rooms, broadcastToRoom, startTurnTimerFn)) {
+      room.currentPlayerIndex = nextPlayerIndex(room);
+      startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+    }
+    return { ok: true };
+  }
+
+  if (!cards || cards.length !== 1) {
+    return { ok: false, error: 'Play exactly one card' };
+  }
+  return playCard(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, cards[0]);
+}
+
+function handleMuushigPass(roomId, rooms, broadcastToRoom, startTurnTimerFn, player) {
+  const room = rooms[roomId];
+  const state = room.muushig;
+  if (!state || state.phase !== 'exchange') {
+    return { ok: false, error: 'Cannot pass during play' };
+  }
+  return handleMuushigMove(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, []);
+}
+
+function handleMuushigRestart(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
+  const room = rooms[roomId];
+  if (room.players.length < 2) {
+    return { ok: false, error: 'Need at least 2 players to start' };
+  }
+  startMuushigGame(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+  return { ok: true };
+}
+
+function autoMuushigTimeout(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
+  const room = rooms[roomId];
+  if (!room || !room.muushig || room.gameFinished) return;
+  const player = room.players[room.currentPlayerIndex];
+  if (!player) return;
+
+  if (room.muushig.phase === 'exchange') {
+    handleMuushigPass(roomId, rooms, broadcastToRoom, startTurnTimerFn, player);
+    return;
+  }
+
+  const card = muushig.lowestLegalCard(player.hand, room.muushig.trick, room.muushig.trumpSuit);
+  if (!card) {
+    handleMuushigPass(roomId, rooms, broadcastToRoom, startTurnTimerFn, player);
+    return;
+  }
+  playCard(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, card);
+}
+
+module.exports = {
+  startMuushigGame,
+  beginRound,
+  handleMuushigMove,
+  handleMuushigPass,
+  handleMuushigRestart,
+  autoMuushigTimeout,
+  sendHands,
+};

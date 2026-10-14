@@ -27,7 +27,7 @@ app.get("/", (req, res) => {
   res.json({ message: "Welcome to the application." });
 });
 app.get("/health", (req, res) => {
-  res.json({ ok: true, service: "poker-poc", game: "mongol_13" });
+  res.json({ ok: true, service: "poker-poc", games: ["mongol_13", "muushig"] });
 });
 require("./app/routes/user.routes")(app);
 require("./app/routes/auth.routes")(app);
