@@ -319,6 +319,8 @@ function handleEnterDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, p
     player: player.playerId,
     justEntered: result.entered,
     satOut: !result.entered,
+    forced: !!result.forced,
+    reason: result.reason,
     cardCounts: getPlayerCardCounts(room),
     points: room.playerPoints,
   }, rooms);

@@ -74,6 +74,49 @@ sitOutRoom.currentPlayerIndex = 2;
 const lastMustEnter = !logic.canSitOut(sitOutRoom, 3) || sitOutRoom.players.length === 2;
 assert.strictEqual(typeof lastMustEnter, 'boolean');
 
+const forcedRoom = roomWithHands([
+  [['7', '♥']],
+  [['8', '♥']],
+  [['9', '♥']],
+]);
+forcedRoom.muushig.phase = 'enter';
+forcedRoom.muushig.entered = {};
+forcedRoom.muushig.satOut = {};
+forcedRoom.muushig.sitOutStreak = { 1: 3 };
+assert.strictEqual(logic.canSitOut(forcedRoom, 1), false);
+assert.strictEqual(logic.sitOutBlockReason(forcedRoom, 1), 'streak');
+const forced = logic.decideEnter(forcedRoom, forcedRoom.players[0], false);
+assert.strictEqual(forced.entered, true);
+assert.strictEqual(forced.forced, true);
+assert.strictEqual(forced.reason, 'streak');
+assert.strictEqual(forcedRoom.muushig.sitOutStreak[1], 0);
+assert.strictEqual(forcedRoom.muushig.entered[1], true);
+
+const streakRoom = roomWithHands([
+  [['7', '♥']],
+  [['8', '♥']],
+  [['9', '♥']],
+]);
+streakRoom.muushig.phase = 'enter';
+streakRoom.muushig.entered = {};
+streakRoom.muushig.satOut = {};
+for (let round = 1; round <= 3; round++) {
+  streakRoom.muushig.phase = 'enter';
+  streakRoom.muushig.entered = {};
+  streakRoom.muushig.satOut = {};
+  assert.strictEqual(logic.canSitOut(streakRoom, 1), true, `sit out allowed in round ${round}`);
+  const sat = logic.decideEnter(streakRoom, streakRoom.players[0], false);
+  assert.strictEqual(sat.entered, false);
+  assert.strictEqual(streakRoom.muushig.sitOutStreak[1], round);
+}
+streakRoom.muushig.phase = 'enter';
+streakRoom.muushig.entered = {};
+streakRoom.muushig.satOut = {};
+assert.strictEqual(logic.canSitOut(streakRoom, 1), false);
+const fourth = logic.decideEnter(streakRoom, streakRoom.players[0], false);
+assert.strictEqual(fourth.entered, true);
+assert.strictEqual(fourth.forced, true);
+
 const satScored = roomWithHands([[['A', '♥']], [['K', '♥']]]);
 satScored.muushig.satOut = { 2: true };
 satScored.muushig.entered = { 1: true };

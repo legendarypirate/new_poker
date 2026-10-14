@@ -71,6 +71,7 @@ function resetMuushigPoints(room) {
   for (const player of room.players) {
     room.playerPoints[player.playerId] = START_POINTS;
   }
+  if (room.muushig) room.muushig.sitOutStreak = {};
 }
 
 function emptyByPlayer(room, value = false) {
@@ -177,16 +178,27 @@ function hasDecided(state, playerId) {
   return !!(state.entered[playerId] || state.satOut[playerId]);
 }
 
-function canSitOut(room, playerId) {
+function sitOutCount(state, playerId) {
+  if (!state?.sitOutStreak) return 0;
+  const streak = state.sitOutStreak;
+  return Number(streak[playerId] ?? streak[String(playerId)] ?? 0);
+}
+
+function sitOutBlockReason(room, playerId) {
   const state = room.muushig;
-  if (!state || state.phase !== 'enter') return false;
-  if (hasDecided(state, playerId)) return false;
-  if (room.players.length <= 2) return false;
-  if ((state.sitOutStreak[playerId] || 0) >= MAX_SIT_OUT_STREAK) return false;
+  if (!state || state.phase !== 'enter') return 'notEnter';
+  if (hasDecided(state, playerId)) return 'decided';
+  if (room.players.length <= 2) return 'headsUp';
+  if (sitOutCount(state, playerId) >= MAX_SIT_OUT_STREAK) return 'streak';
   const sat = room.players.filter((p) => state.satOut[p.playerId]).length;
   const inPlay = room.players.filter((p) => state.entered[p.playerId]).length;
   const undecided = room.players.length - sat - inPlay;
-  return inPlay + undecided > 2;
+  if (inPlay + undecided <= 2) return 'lastTwo';
+  return null;
+}
+
+function canSitOut(room, playerId) {
+  return sitOutBlockReason(room, playerId) == null;
 }
 
 function decideEnter(room, player, enter) {
@@ -197,15 +209,16 @@ function decideEnter(room, player, enter) {
   if (hasDecided(state, player.playerId)) {
     return { ok: false, error: 'Already decided' };
   }
-  const sittingOut = !enter && canSitOut(room, player.playerId);
+  const blockReason = sitOutBlockReason(room, player.playerId);
+  const sittingOut = !enter && blockReason == null;
   if (sittingOut) {
     state.satOut[player.playerId] = true;
-    state.sitOutStreak[player.playerId] = (state.sitOutStreak[player.playerId] || 0) + 1;
+    state.sitOutStreak[player.playerId] = sitOutCount(state, player.playerId) + 1;
     return { ok: true, entered: false };
   }
   state.entered[player.playerId] = true;
   state.sitOutStreak[player.playerId] = 0;
-  return { ok: true, entered: true, forced: !enter };
+  return { ok: true, entered: true, forced: !enter, reason: !enter ? blockReason : undefined };
 }
 
 function allDecided(room) {
@@ -410,6 +423,11 @@ function publicState(room) {
     canSitOut: room.players[room.currentPlayerIndex]
       ? canSitOut(room, room.players[room.currentPlayerIndex].playerId)
       : false,
+    sitOutBlockReason: room.players[room.currentPlayerIndex]
+      ? sitOutBlockReason(room, room.players[room.currentPlayerIndex].playerId)
+      : null,
+    sitOutStreak: { ...(state.sitOutStreak || {}) },
+    maxSitOutStreak: MAX_SIT_OUT_STREAK,
     canNavshihKhozer: room.players[room.currentPlayerIndex]
       ? canNavshihKhozer(room, room.players[room.currentPlayerIndex].playerId)
       : false,
@@ -427,6 +445,7 @@ module.exports = {
   START_POINTS,
   WIN_AT,
   HAND_SIZE,
+  MAX_SIT_OUT_STREAK,
   rankValue,
   createMuushigDeck,
   ensureMuushigPoints,
@@ -434,6 +453,8 @@ module.exports = {
   dealMuushigRound,
   decideEnter,
   canSitOut,
+  sitOutBlockReason,
+  sitOutCount,
   canNavshihKhozer,
   navshihKhozer,
   finishKhozerPhase,
