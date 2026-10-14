@@ -31,7 +31,7 @@ const follow = logic.legalPlayCards(
   [{ playerId: 1, card: { rank: '10', suit: '♥' } }],
   '♠'
 );
-assert.deepStrictEqual(follow.map((c) => c.rank + c.suit).sort(), ['9♥', 'A♠']);
+assert.deepStrictEqual(follow.map((c) => c.rank + c.suit), ['9♥']);
 
 const mustTrump = logic.legalPlayCards(
   [{ rank: '9', suit: '♣' }, { rank: 'A', suit: '♠' }],
@@ -163,11 +163,20 @@ const mustEatWithTrump = logic.legalPlayCards(
 );
 assert.deepStrictEqual(mustEatWithTrump.map((c) => c.rank + c.suit), ['7♣']);
 
-const canPlayGil = logic.legalPlayCards(
-  [{ rank: 'K', suit: '♣' }, { rank: '9', suit: '♠' }, { rank: '10', suit: '♠' }],
-  [{ playerId: 1, card: { rank: 'Q', suit: '♣' } }],
+const mustFollowDiamond = logic.legalPlayCards(
+  [{ rank: 'K', suit: '♦' }, { rank: '9', suit: '♠' }, { rank: '10', suit: '♠' }],
+  [{ playerId: 1, card: { rank: 'A', suit: '♦' } }],
   '♠'
 );
-assert.deepStrictEqual(canPlayGil.map((c) => c.rank + c.suit).sort(), ['10♠', '9♠', 'K♣']);
+assert.deepStrictEqual(mustFollowDiamond.map((c) => c.rank + c.suit), ['K♦']);
+assert.strictEqual(
+  logic.isLegalPlay(
+    [{ rank: 'K', suit: '♦' }, { rank: '9', suit: '♠' }],
+    { rank: '9', suit: '♠' },
+    [{ playerId: 1, card: { rank: 'A', suit: '♦' } }],
+    '♠'
+  ),
+  false
+);
 
 console.log('muushigLogic tests passed');

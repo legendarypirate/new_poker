@@ -293,7 +293,6 @@ function legalPlayCards(hand, trick, trumpSuit) {
   }
   const leadSuit = playCardOf(trick[0]).suit;
   const sameSuit = held.filter((card) => card.suit === leadSuit);
-  const trumps = held.filter((card) => card.suit === trump);
   if (sameSuit.length) {
     const highestLead = Math.max(
       ...trick
@@ -302,13 +301,12 @@ function legalPlayCards(hand, trick, trumpSuit) {
         .map((card) => rankValue(card.rank))
     );
     const higher = sameSuit.filter((card) => rankValue(card.rank) > highestLead);
-    const follow = higher.length ? higher : sameSuit;
-    if (leadSuit !== trump && trumps.length) {
-      return [...follow, ...trumps];
-    }
-    return follow;
+    return higher.length ? higher : sameSuit;
   }
-  if (leadSuit !== trump && trumps.length) return trumps;
+  if (leadSuit !== trump) {
+    const trumps = held.filter((card) => card.suit === trump);
+    if (trumps.length) return trumps;
+  }
   return held.slice();
 }
 
