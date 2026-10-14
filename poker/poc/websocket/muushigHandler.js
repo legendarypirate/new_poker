@@ -133,6 +133,7 @@ function completeExchangeIfNeeded(roomId, rooms, broadcastToRoom, startTurnTimer
   const room = rooms[roomId];
   if (!muushig.allExchanged(room)) return false;
   if (maybeInstantWin(roomId, rooms, broadcastToRoom)) return true;
+  // Navshih is only offered after солих, immediately before play starts.
   muushig.startKhozerPhase(room);
   sendHands(room);
   broadcastToRoom(roomId, {

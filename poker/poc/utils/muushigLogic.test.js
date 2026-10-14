@@ -113,6 +113,27 @@ assert.strictEqual(logic.canNavshihKhozer(dealRoom, dealer.playerId), false);
 logic.finishKhozerPhase(dealRoom);
 assert.strictEqual(dealRoom.muushig.phase, 'play');
 
+const { allocateSeatOrder } = require('./seatOrder');
+const clockwiseRoom = {
+  players: [
+    { playerId: 10, hand: [] },
+    { playerId: 20, hand: [] },
+    { playerId: 30, hand: [] },
+  ],
+  seatOrder: [20, 30, 10],
+};
+allocateSeatOrder(clockwiseRoom);
+logic.dealMuushigRound(clockwiseRoom);
+assert.deepStrictEqual(clockwiseRoom.players.map((p) => p.playerId), [20, 30, 10]);
+assert.strictEqual(clockwiseRoom.muushig.phase, 'enter');
+assert.strictEqual(clockwiseRoom.muushig.dealerIndex, 0);
+assert.strictEqual(clockwiseRoom.players[clockwiseRoom.currentPlayerIndex].playerId, 30);
+clockwiseRoom.muushig.entered = { 20: true, 30: true, 10: true };
+clockwiseRoom.muushig.exchanged = { 20: true, 30: true, 10: true };
+assert.strictEqual(logic.startKhozerPhase(clockwiseRoom), true);
+assert.strictEqual(clockwiseRoom.muushig.phase, 'khozer');
+assert.strictEqual(clockwiseRoom.players[clockwiseRoom.currentPlayerIndex].playerId, 20);
+
 const swapRoom = {
   players: [
     { playerId: 1, hand: [
