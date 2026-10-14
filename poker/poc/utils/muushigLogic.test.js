@@ -82,6 +82,26 @@ const satDeltas = logic.applyRoundScores(satScored);
 assert.strictEqual(satDeltas[2], 0);
 assert.strictEqual(satScored.playerPoints[2], 15);
 
+const dealRoom = {
+  players: [{ playerId: 1, hand: [] }, { playerId: 2, hand: [] }, { playerId: 3, hand: [] }],
+};
+logic.dealMuushigRound(dealRoom);
+assert.strictEqual(dealRoom.muushig.phase, 'khozer');
+assert.strictEqual(dealRoom.currentPlayerIndex, dealRoom.muushig.dealerIndex);
+assert.strictEqual(logic.canNavshihKhozer(dealRoom, dealRoom.players[dealRoom.muushig.dealerIndex].playerId), true);
+const oldTrump = { ...dealRoom.muushig.trump };
+const flipped = logic.navshihKhozer(dealRoom, dealRoom.players[dealRoom.muushig.dealerIndex]);
+assert.strictEqual(flipped.ok, true);
+assert.notStrictEqual(flipped.trump.rank + flipped.trump.suit, oldTrump.rank + oldTrump.suit);
+assert.strictEqual(dealRoom.muushig.khozerNavshihed, true);
+assert.strictEqual(logic.canNavshihKhozer(dealRoom, dealRoom.players[dealRoom.muushig.dealerIndex].playerId), false);
+logic.finishKhozerPhase(dealRoom);
+assert.strictEqual(dealRoom.muushig.phase, 'enter');
+assert.strictEqual(
+  dealRoom.currentPlayerIndex,
+  (dealRoom.muushig.dealerIndex + 1) % dealRoom.players.length
+);
+
 const mustLeadAce = logic.legalPlayCards(
   [{ rank: '9', suit: '♥' }, { rank: 'A', suit: '♠' }],
   [],

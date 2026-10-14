@@ -30,6 +30,8 @@ function broadcastTurn(roomId, rooms, broadcastToRoom) {
     points: room.playerPoints || {},
     loseAt: muushig.WIN_AT,
     startPoints: muushig.START_POINTS,
+    remainingTime: 20,
+    totalTime: 20,
     ...muushig.publicState(room),
   }, rooms);
 }
@@ -237,6 +239,28 @@ function playCard(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, card
   return { ok: true };
 }
 
+function handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, navshih) {
+  const room = rooms[roomId];
+  if (room.muushig?.phase !== 'khozer') {
+    return { ok: false, error: 'Not khozer phase' };
+  }
+  if (navshih) {
+    const result = muushig.navshihKhozer(room, player);
+    if (!result.ok) return result;
+  }
+  muushig.finishKhozerPhase(room);
+  sendHands(room);
+  broadcastToRoom(roomId, {
+    type: 'muushigKhozer',
+    ...muushig.publicState(room),
+    player: player.playerId,
+    navshihed: !!navshih,
+    cardCounts: getPlayerCardCounts(room),
+  }, rooms);
+  startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+  return { ok: true, navshihed: !!navshih };
+}
+
 function handleEnterDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, enter) {
   const room = rooms[roomId];
   const result = muushig.decideEnter(room, player, enter);
@@ -244,10 +268,10 @@ function handleEnterDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, p
 
   broadcastToRoom(roomId, {
     type: 'muushigEnter',
-    player: player.playerId,
-    entered: result.entered,
-    satOut: !result.entered,
     ...muushig.publicState(room),
+    player: player.playerId,
+    justEntered: result.entered,
+    satOut: !result.entered,
     cardCounts: getPlayerCardCounts(room),
     points: room.playerPoints,
   }, rooms);
@@ -269,6 +293,17 @@ function handleMuushigMove(roomId, rooms, broadcastToRoom, startTurnTimerFn, pla
     return { ok: false, error: 'Not your turn' };
   }
   clearTurnTimer(roomId, rooms);
+
+  if (state.phase === 'khozer' || action === 'navshihKhozer' || action === 'keepKhozer') {
+    return handleKhozerDecision(
+      roomId,
+      rooms,
+      broadcastToRoom,
+      startTurnTimerFn,
+      player,
+      action === 'navshihKhozer'
+    );
+  }
 
   if (state.phase === 'enter' || action === 'enter' || action === 'sitOut') {
     return handleEnterDecision(
@@ -296,11 +331,11 @@ function handleMuushigMove(roomId, rooms, broadcastToRoom, startTurnTimerFn, pla
     }
     broadcastToRoom(roomId, {
       type: 'muushigExchange',
+      ...muushig.publicState(room),
       player: player.playerId,
-      exchanged: (cards || []).length,
+      exchangedCount: (cards || []).length,
       tookTrump: !!result.tookTrump,
       cardCounts: getPlayerCardCounts(room),
-      ...muushig.publicState(room),
     }, rooms);
     if (!completeExchangeIfNeeded(roomId, rooms, broadcastToRoom, startTurnTimerFn)) {
       room.currentPlayerIndex = muushig.nextEnteredIndex(room, room.currentPlayerIndex);
@@ -319,6 +354,9 @@ function handleMuushigPass(roomId, rooms, broadcastToRoom, startTurnTimerFn, pla
   const room = rooms[roomId];
   const state = room.muushig;
   if (!state) return { ok: false, error: 'Game not in progress' };
+  if (state.phase === 'khozer') {
+    return handleMuushigMove(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, [], 'navshihKhozer');
+  }
   if (state.phase === 'enter') {
     return handleMuushigMove(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, [], 'sitOut');
   }
@@ -343,6 +381,11 @@ function autoMuushigTimeout(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
   const player = room.players[room.currentPlayerIndex];
   if (!player) return;
   clearTurnTimer(roomId, rooms);
+
+  if (room.muushig.phase === 'khozer') {
+    handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, false);
+    return;
+  }
 
   if (room.muushig.phase === 'enter') {
     const sit = muushig.canSitOut(room, player.playerId);

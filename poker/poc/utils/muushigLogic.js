@@ -61,8 +61,9 @@ function dealMuushigRound(room) {
     trump,
     trumpSuit: trump.suit,
     trumpTaken: false,
+    khozerNavshihed: false,
     stock: deck,
-    phase: 'enter',
+    phase: 'khozer',
     trick: [],
     tricksWon: Object.fromEntries(room.players.map((p) => [p.playerId, 0])),
     entered: {},
@@ -71,10 +72,38 @@ function dealMuushigRound(room) {
     sitOutStreak: previous?.sitOutStreak ? { ...previous.sitOutStreak } : {},
     dealerIndex,
   };
-  room.currentPlayerIndex = (dealerIndex + 1) % room.players.length;
+  room.currentPlayerIndex = dealerIndex % room.players.length;
   room.lastPlay = null;
   room.passCount = 0;
   return room.muushig;
+}
+
+function canNavshihKhozer(room, playerId) {
+  const state = room.muushig;
+  if (!state || state.phase !== 'khozer') return false;
+  if (state.khozerNavshihed || state.trumpTaken || !state.trump) return false;
+  if (!state.stock.length) return false;
+  return room.players[state.dealerIndex]?.playerId === playerId;
+}
+
+function navshihKhozer(room, player) {
+  const state = room.muushig;
+  if (!canNavshihKhozer(room, player.playerId)) {
+    return { ok: false, error: 'Cannot navshih khozer' };
+  }
+  const next = state.stock.shift();
+  state.stock.push(state.trump);
+  state.trump = next;
+  state.trumpSuit = next.suit;
+  state.khozerNavshihed = true;
+  return { ok: true, trump: next };
+}
+
+function finishKhozerPhase(room) {
+  const state = room.muushig;
+  if (!state) return;
+  state.phase = 'enter';
+  room.currentPlayerIndex = (state.dealerIndex + 1) % room.players.length;
 }
 
 function cardsOwned(hand, cards) {
@@ -298,6 +327,10 @@ function publicState(room) {
     canSitOut: room.players[room.currentPlayerIndex]
       ? canSitOut(room, room.players[room.currentPlayerIndex].playerId)
       : false,
+    canNavshihKhozer: room.players[room.currentPlayerIndex]
+      ? canNavshihKhozer(room, room.players[room.currentPlayerIndex].playerId)
+      : false,
+    turnSeconds: 20,
     startPoints: START_POINTS,
     loseAt: WIN_AT,
     points: room.playerPoints || {},
@@ -317,6 +350,9 @@ module.exports = {
   dealMuushigRound,
   decideEnter,
   canSitOut,
+  canNavshihKhozer,
+  navshihKhozer,
+  finishKhozerPhase,
   allDecided,
   startExchangePhase,
   exchangeCards,
