@@ -130,7 +130,6 @@ function navshihKhozer(room, player, cards) {
   const taken = normalizeCard(state.trump);
   player.hand = removeCardsFromHand(player.hand, [discarded]);
   player.hand.push(taken);
-  state.stock.push(discarded);
   state.khozerNavshihed = true;
   return { ok: true, taken, discarded, trumpSuit: state.trumpSuit };
 }
@@ -256,7 +255,6 @@ function exchangeCards(room, player, cards) {
   while (drawn.length < discarded.length && state.stock.length > 0) {
     drawn.push(normalizeCard(state.stock.shift()));
   }
-  state.stock.push(...discarded);
   player.hand.push(...drawn);
   state.exchanged[player.playerId] = true;
   return { ok: true, drawn, tookTrump: false };
@@ -295,6 +293,7 @@ function legalPlayCards(hand, trick, trumpSuit) {
   }
   const leadSuit = playCardOf(trick[0]).suit;
   const sameSuit = held.filter((card) => card.suit === leadSuit);
+  const trumps = held.filter((card) => card.suit === trump);
   if (sameSuit.length) {
     const highestLead = Math.max(
       ...trick
@@ -303,12 +302,13 @@ function legalPlayCards(hand, trick, trumpSuit) {
         .map((card) => rankValue(card.rank))
     );
     const higher = sameSuit.filter((card) => rankValue(card.rank) > highestLead);
-    return higher.length ? higher : sameSuit;
+    const follow = higher.length ? higher : sameSuit;
+    if (leadSuit !== trump && trumps.length) {
+      return [...follow, ...trumps];
+    }
+    return follow;
   }
-  if (leadSuit !== trump) {
-    const trumps = held.filter((card) => card.suit === trump);
-    if (trumps.length) return trumps;
-  }
+  if (leadSuit !== trump && trumps.length) return trumps;
   return held.slice();
 }
 

@@ -31,7 +31,7 @@ const follow = logic.legalPlayCards(
   [{ playerId: 1, card: { rank: '10', suit: '♥' } }],
   '♠'
 );
-assert.deepStrictEqual(follow.map((c) => c.rank + c.suit), ['9♥']);
+assert.deepStrictEqual(follow.map((c) => c.rank + c.suit).sort(), ['9♥', 'A♠']);
 
 const mustTrump = logic.legalPlayCards(
   [{ rank: '9', suit: '♣' }, { rank: 'A', suit: '♠' }],
@@ -98,6 +98,7 @@ const oldTrump = { ...dealRoom.muushig.trump };
 const dealer = dealRoom.players[dealRoom.muushig.dealerIndex];
 const giveAway = { ...dealer.hand[0] };
 const before = dealer.hand.length;
+const stockBeforeNav = dealRoom.muushig.stock.length;
 const taken = logic.navshihKhozer(dealRoom, dealer, [giveAway]);
 assert.strictEqual(taken.ok, true);
 assert.strictEqual(dealer.hand.length, before);
@@ -105,7 +106,8 @@ assert.ok(dealer.hand.some((c) => c.rank === oldTrump.rank && c.suit === oldTrum
 assert.ok(!dealer.hand.some((c) => c.rank === giveAway.rank && c.suit === giveAway.suit));
 assert.strictEqual(dealRoom.muushig.trump.rank + dealRoom.muushig.trump.suit, oldTrump.rank + oldTrump.suit);
 assert.strictEqual(dealRoom.muushig.trumpTaken, false);
-assert.ok(dealRoom.muushig.stock.some((c) => c.rank === giveAway.rank && c.suit === giveAway.suit));
+assert.strictEqual(dealRoom.muushig.stock.length, stockBeforeNav);
+assert.ok(!dealRoom.muushig.stock.some((c) => c.rank === giveAway.rank && c.suit === giveAway.suit));
 assert.strictEqual(dealRoom.muushig.khozerNavshihed, true);
 assert.strictEqual(logic.canNavshihKhozer(dealRoom, dealer.playerId), false);
 logic.finishKhozerPhase(dealRoom);
@@ -131,7 +133,7 @@ const give = swapRoom.players[0].hand.slice(0, 3);
 const swapped = logic.exchangeCards(swapRoom, swapRoom.players[0], give);
 assert.strictEqual(swapped.ok, true);
 assert.strictEqual(swapRoom.players[0].hand.length, 5);
-assert.strictEqual(swapRoom.muushig.stock.length, stockBefore);
+assert.strictEqual(swapRoom.muushig.stock.length, stockBefore - 3);
 
 const mustLeadAce = logic.legalPlayCards(
   [{ rank: '9', suit: '♥' }, { rank: 'A', suit: '♠' }],
@@ -160,5 +162,12 @@ const mustEatWithTrump = logic.legalPlayCards(
   '♣'
 );
 assert.deepStrictEqual(mustEatWithTrump.map((c) => c.rank + c.suit), ['7♣']);
+
+const canPlayGil = logic.legalPlayCards(
+  [{ rank: 'K', suit: '♣' }, { rank: '9', suit: '♠' }, { rank: '10', suit: '♠' }],
+  [{ playerId: 1, card: { rank: 'Q', suit: '♣' } }],
+  '♠'
+);
+assert.deepStrictEqual(canPlayGil.map((c) => c.rank + c.suit).sort(), ['10♠', '9♠', 'K♣']);
 
 console.log('muushigLogic tests passed');
