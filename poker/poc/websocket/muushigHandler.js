@@ -248,19 +248,6 @@ function handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, 
   if (navshih) {
     const result = muushig.navshihKhozer(room, player);
     if (!result.ok) return result;
-    sendHands(room);
-    broadcastToRoom(roomId, {
-      type: 'muushigKhozer',
-      ...muushig.publicState(room),
-      player: player.playerId,
-      navshihed: true,
-      trump: room.muushig.trump,
-      trumpSuit: room.muushig.trumpSuit,
-      phase: 'khozer',
-      cardCounts: getPlayerCardCounts(room),
-    }, rooms);
-    startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
-    return { ok: true, navshihed: true };
   }
   muushig.finishKhozerPhase(room);
   sendHands(room);
@@ -268,11 +255,12 @@ function handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, 
     type: 'muushigKhozer',
     ...muushig.publicState(room),
     player: player.playerId,
-    navshihed: false,
+    navshihed: !!navshih,
+    trumpSuit: room.muushig.trumpSuit,
     cardCounts: getPlayerCardCounts(room),
   }, rooms);
   startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
-  return { ok: true, navshihed: false };
+  return { ok: true, navshihed: !!navshih };
 }
 
 function handleEnterDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, enter) {

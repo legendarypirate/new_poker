@@ -112,7 +112,6 @@ function canNavshihKhozer(room, playerId) {
   const state = room.muushig;
   if (!state || state.phase !== 'khozer') return false;
   if (state.khozerNavshihed || state.trumpTaken || !state.trump) return false;
-  if (!state.stock.length) return false;
   return room.players[state.dealerIndex]?.playerId === playerId;
 }
 
@@ -121,12 +120,12 @@ function navshihKhozer(room, player) {
   if (!canNavshihKhozer(room, player.playerId)) {
     return { ok: false, error: 'Cannot navshih khozer' };
   }
-  const next = normalizeCard(state.stock.shift());
-  state.stock.push(normalizeCard(state.trump));
-  state.trump = next;
-  state.trumpSuit = next.suit;
+  const taken = normalizeCard(state.trump);
+  player.hand = [...(player.hand || []), taken];
+  state.trumpSuit = taken.suit;
+  state.trumpTaken = true;
   state.khozerNavshihed = true;
-  return { ok: true, trump: next };
+  return { ok: true, taken, trumpSuit: taken.suit };
 }
 
 function finishKhozerPhase(room) {
