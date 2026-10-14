@@ -560,7 +560,7 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
       startTurnTimer(id, rooms, broadcastToRoom, (id) => autoPass(id, rooms, broadcastToRoom, boundStartTurnTimer));
     };
     const result = msg.type === 'move'
-      ? handleMuushigMove(roomId, rooms, broadcastToRoom, boundStartTurnTimer, player, msg.cards)
+      ? handleMuushigMove(roomId, rooms, broadcastToRoom, boundStartTurnTimer, player, msg.cards, msg.action)
       : msg.type === 'pass'
         ? handleMuushigPass(roomId, rooms, broadcastToRoom, boundStartTurnTimer, player)
         : handleMuushigRestart(roomId, rooms, broadcastToRoom, boundStartTurnTimer);

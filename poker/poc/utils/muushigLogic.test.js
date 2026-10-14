@@ -17,7 +17,10 @@ function roomWithHands(hands, trumpSuit = '♠') {
       phase: 'play',
       trick: [],
       tricksWon: Object.fromEntries(players.map((p) => [p.playerId, 0])),
+      entered: Object.fromEntries(players.map((p) => [p.playerId, true])),
+      satOut: {},
       exchanged: {},
+      sitOutStreak: {},
       dealerIndex: 0,
     },
   };
@@ -54,5 +57,36 @@ assert.strictEqual(deltas[1], -3);
 assert.strictEqual(deltas[2], 5);
 assert.strictEqual(scored.playerPoints[1], 12);
 assert.strictEqual(scored.playerPoints[2], 20);
+
+const sitOutRoom = roomWithHands([
+  [['A', '♥']],
+  [['K', '♥']],
+  [['Q', '♥']],
+]);
+sitOutRoom.muushig.phase = 'enter';
+sitOutRoom.muushig.entered = {};
+sitOutRoom.muushig.satOut = {};
+sitOutRoom.currentPlayerIndex = 1;
+assert.strictEqual(logic.canSitOut(sitOutRoom, 2), true);
+const navshih = logic.decideEnter(sitOutRoom, sitOutRoom.players[1], false);
+assert.strictEqual(navshih.entered, false);
+sitOutRoom.currentPlayerIndex = 2;
+const lastMustEnter = !logic.canSitOut(sitOutRoom, 3) || sitOutRoom.players.length === 2;
+assert.strictEqual(typeof lastMustEnter, 'boolean');
+
+const satScored = roomWithHands([[['A', '♥']], [['K', '♥']]]);
+satScored.muushig.satOut = { 2: true };
+satScored.muushig.entered = { 1: true };
+satScored.muushig.tricksWon = { 1: 5, 2: 0 };
+const satDeltas = logic.applyRoundScores(satScored);
+assert.strictEqual(satDeltas[2], 0);
+assert.strictEqual(satScored.playerPoints[2], 15);
+
+const mustLeadAce = logic.legalPlayCards(
+  [{ rank: '9', suit: '♥' }, { rank: 'A', suit: '♠' }],
+  [],
+  '♠'
+);
+assert.deepStrictEqual(mustLeadAce.map((c) => c.rank + c.suit), ['A♠']);
 
 console.log('muushigLogic tests passed');

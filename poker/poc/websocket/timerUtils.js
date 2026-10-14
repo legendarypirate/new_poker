@@ -3,6 +3,8 @@ function startTurnTimer(roomId, rooms, broadcastToRoom, autoPassFn) {
     console.log(`⚠️ Rooms object or room ${roomId} not found in startTurnTimer`);
     return;
   }
+
+  clearTurnTimer(roomId, rooms);
   
   const room = rooms[roomId];
   if (!room || room.players.length === 0) return;
