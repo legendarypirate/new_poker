@@ -115,17 +115,24 @@ function canNavshihKhozer(room, playerId) {
   return room.players[state.dealerIndex]?.playerId === playerId;
 }
 
-function navshihKhozer(room, player) {
+function navshihKhozer(room, player, cards) {
   const state = room.muushig;
   if (!canNavshihKhozer(room, player.playerId)) {
     return { ok: false, error: 'Cannot navshih khozer' };
   }
+  if (!Array.isArray(cards) || cards.length !== 1) {
+    return { ok: false, error: 'Select one card to swap' };
+  }
+  if (!cardsOwned(player.hand, cards)) {
+    return { ok: false, error: 'Cards not in hand' };
+  }
+  const discarded = normalizeCard(cards[0]);
   const taken = normalizeCard(state.trump);
-  player.hand = [...(player.hand || []), taken];
-  state.trumpSuit = taken.suit;
-  state.trumpTaken = true;
+  player.hand = removeCardsFromHand(player.hand, [discarded]);
+  player.hand.push(taken);
+  state.stock.push(discarded);
   state.khozerNavshihed = true;
-  return { ok: true, taken, trumpSuit: taken.suit };
+  return { ok: true, taken, discarded, trumpSuit: state.trumpSuit };
 }
 
 function finishKhozerPhase(room) {
