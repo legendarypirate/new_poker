@@ -179,4 +179,18 @@ assert.strictEqual(
   false
 );
 
+const onjihRoom = roomWithHands([
+  [['A', '♥']],
+  [['K', '♥']],
+  [['Q', '♥']],
+]);
+onjihRoom.muushig.trick = [{ playerId: 1, card: { rank: 'A', suit: '♥' } }];
+onjihRoom.muushig.passedThisTrick = { 2: true };
+assert.strictEqual(logic.hasResolvedThisTrick(onjihRoom.muushig, 1), true);
+assert.strictEqual(logic.hasResolvedThisTrick(onjihRoom.muushig, 2), true);
+assert.strictEqual(logic.hasResolvedThisTrick(onjihRoom.muushig, 3), false);
+assert.strictEqual(logic.trickIsResolved(onjihRoom), false);
+onjihRoom.muushig.passedThisTrick[3] = true;
+assert.strictEqual(logic.trickIsResolved(onjihRoom), true);
+
 console.log('muushigLogic tests passed');

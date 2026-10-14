@@ -100,6 +100,7 @@ function dealMuushigRound(room) {
     satOut: {},
     exchanged: {},
     sitOutStreak: previous?.sitOutStreak ? { ...previous.sitOutStreak } : {},
+    passedThisTrick: {},
     dealerIndex,
   };
   room.currentPlayerIndex = (dealerIndex + 1) % room.players.length;
@@ -272,8 +273,35 @@ function startPlayPhase(room) {
   const state = room.muushig;
   state.phase = 'play';
   state.trick = [];
+  state.passedThisTrick = {};
   room.currentPlayerIndex = nextEnteredIndex(room, state.dealerIndex);
   room.lastPlay = null;
+}
+
+function hasPlayedThisTrick(state, playerId) {
+  return (state.trick || []).some((play) => (play.playerId ?? play.player) === playerId);
+}
+
+function hasResolvedThisTrick(state, playerId) {
+  return hasPlayedThisTrick(state, playerId) || !!(state.passedThisTrick && state.passedThisTrick[playerId]);
+}
+
+function nextUnresolvedIndex(room, fromIndex) {
+  const state = room.muushig;
+  const n = room.players.length;
+  for (let step = 1; step <= n; step++) {
+    const index = (fromIndex + step) % n;
+    const player = room.players[index];
+    if (state.entered[player.playerId] && !hasResolvedThisTrick(state, player.playerId)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function trickIsResolved(room) {
+  const active = enteredPlayers(room);
+  return active.length > 0 && active.every((player) => hasResolvedThisTrick(room.muushig, player.playerId));
 }
 
 function trumpAce(trumpSuit) {
@@ -378,12 +406,14 @@ function publicState(room) {
     satOut: state.satOut,
     exchanged: state.exchanged,
     dealer: room.players[state.dealerIndex]?.playerId,
+    seatOrder: Array.isArray(room.seatOrder) ? room.seatOrder.slice() : room.players.map((p) => p.playerId),
     canSitOut: room.players[room.currentPlayerIndex]
       ? canSitOut(room, room.players[room.currentPlayerIndex].playerId)
       : false,
     canNavshihKhozer: room.players[room.currentPlayerIndex]
       ? canNavshihKhozer(room, room.players[room.currentPlayerIndex].playerId)
       : false,
+    passedThisTrick: state.passedThisTrick || {},
     turnSeconds: 20,
     startPoints: START_POINTS,
     loseAt: WIN_AT,
@@ -424,6 +454,10 @@ module.exports = {
   finishedWinners,
   findFourAcesWinner,
   publicState,
+  hasPlayedThisTrick,
+  hasResolvedThisTrick,
+  nextUnresolvedIndex,
+  trickIsResolved,
   cardsOwned,
   sameCard,
   trumpAce,

@@ -16,6 +16,11 @@ const {
 const db = require('../app/models');
 const { toPublicId } = require('../utils/ids');
 const {
+  ensureSeatOrder,
+  allocateSeatOrder,
+  seatedPlayersMessage,
+} = require('../utils/seatOrder');
+const {
   startMuushigGame,
   handleMuushigMove,
   handleMuushigPass,
@@ -60,19 +65,7 @@ function sendSpectatorSnapshot(ws, room, requestedRoomId, actualRoomId, roomRead
     gameStarted: !!room.gameStarted,
   }));
 
-  ws.send(JSON.stringify({
-    type: "seatedPlayers",
-    players: room.players.map((p) => ({
-      playerId: p.playerId,
-      username: p.username,
-      displayName: p.displayName || p.username,
-      avatarUrl: p.avatarUrl || p.avatar_url || "",
-      userId: p.userId,
-      publicId: toPublicId(p.userId),
-      handCount: p.hand ? p.hand.length : 0,
-    })),
-    spectator: true,
-  }));
+  ws.send(JSON.stringify(seatedPlayersMessage(room, { spectator: true })));
 
   if (room.gameStarted) {
     ws.send(JSON.stringify({
@@ -368,6 +361,7 @@ async function startGame(roomId, rooms, roomReadyStatus, broadcastToRoomFn, star
   room.gameStarted = true;
   room.gameFinished = false;
   room.allPlayersLeft = false;
+  allocateSeatOrder(room);
 
   cancelAutoStart(roomId, rooms);
 
@@ -434,6 +428,7 @@ async function startGame(roomId, rooms, roomReadyStatus, broadcastToRoomFn, star
     points: room.playerPoints || {},
     loseAt: 30,
     cardCounts: getPlayerCardCounts(room),
+    seatOrder: ensureSeatOrder(room).slice(),
   });
 
   console.log(`🚀 Game started in room ${roomId}`);
@@ -583,17 +578,7 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
       }
 
       const room = rooms[roomId];
-      ws.send(JSON.stringify({
-        type: "seatedPlayers",
-        players: room.players.map((p) => ({
-          playerId: p.playerId,
-          username: p.username,
-          displayName: p.displayName,
-          avatarUrl: p.avatarUrl || p.avatar_url,
-          userId: p.userId,
-          publicId: toPublicId(p.userId)
-        })),
-      }));
+      ws.send(JSON.stringify(seatedPlayersMessage(room)));
       return true;
     }
 
@@ -1188,19 +1173,7 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
         })
       );
 
-      ws.send(
-        JSON.stringify({
-          type: "seatedPlayers",
-          players: room.players.map((p) => ({
-            playerId: p.playerId,
-            username: p.username,
-            displayName: p.displayName || p.username,
-            avatarUrl: p.avatarUrl || p.avatar_url || '',
-            userId: p.userId,
-          publicId: toPublicId(p.userId)
-          })),
-        })
-      );
+      ws.send(JSON.stringify(seatedPlayersMessage(room)));
 
       // Send current points if available
       if (room.playerPoints && Object.keys(room.playerPoints).length > 0) {
@@ -1333,36 +1306,13 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
       );
 
   // Send current room state to the newly joined player immediately
-  ws.send(JSON.stringify({
-    type: "seatedPlayers",
-    players: room.players.map((p) => ({
-      playerId: p.playerId,
-      username: p.username,
-      displayName: p.displayName || p.username,
-      avatarUrl: p.avatarUrl || p.avatar_url || '',
-      userId: p.userId,
-          publicId: toPublicId(p.userId)
-    })),
-  }));
+  const seatedList = seatedPlayersMessage(room);
+  ws.send(JSON.stringify(seatedList));
 
   ws.send(JSON.stringify({
     type: "playerReadyStatus",
     status: Object.fromEntries(readyStatus)
   }));
-
-  // Also broadcast to all players (including the new one) for consistency
-  // Force broadcast to ensure all clients see the updated player list
-  const seatedPlayersMessage = {
-    type: "seatedPlayers",
-    players: room.players.map((p) => ({
-      playerId: p.playerId,
-      username: p.username,
-      displayName: p.displayName || p.username,
-      avatarUrl: p.avatarUrl || p.avatar_url || '',
-      userId: p.userId,
-          publicId: toPublicId(p.userId)
-    })),
-  };
 
   const readyStatusMessage = {
     type: "playerReadyStatus",
@@ -1370,14 +1320,14 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
   };
 
   // Broadcast to all players in the room
-  broadcastToRoom(roomId, seatedPlayersMessage, rooms);
+  broadcastToRoom(roomId, seatedList, rooms);
   broadcastToRoom(roomId, readyStatusMessage, rooms);
 
   // Also send individual messages to ensure delivery (sometimes broadcast might miss)
   room.players.forEach((p) => {
     if (p.ws && p.ws.readyState === 1) { // WebSocket.OPEN
       try {
-        p.ws.send(JSON.stringify(seatedPlayersMessage));
+        p.ws.send(JSON.stringify(seatedList));
         p.ws.send(JSON.stringify(readyStatusMessage));
       } catch (e) {
         console.error(`❌ Error sending player list to player ${p.playerId}:`, e);

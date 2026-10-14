@@ -2,6 +2,7 @@ const { removeCardsFromHand } = require('../utils/cardUtils');
 const { getPlayerCardCounts } = require('../utils/gameLogic');
 const { clearTurnTimer } = require('./timerUtils');
 const muushig = require('../utils/muushigLogic');
+const { allocateSeatOrder } = require('../utils/seatOrder');
 
 function sendHands(room, extra = {}) {
   const counts = getPlayerCardCounts(room);
@@ -109,6 +110,7 @@ function beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, { restarte
 
 function startMuushigGame(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
   const room = rooms[roomId];
+  allocateSeatOrder(room);
   muushig.resetMuushigPoints(room);
   beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn);
 }
@@ -196,6 +198,7 @@ function finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerF
   const winnerIndex = room.players.findIndex((player) => player.playerId === winnerId);
   room.currentPlayerIndex = winnerIndex >= 0 ? winnerIndex : muushig.nextEnteredIndex(room, state.dealerIndex);
   state.trick = [];
+  state.passedThisTrick = {};
   room.lastPlay = null;
   setTimeout(() => {
     if (!rooms[roomId] || rooms[roomId].gameFinished) return;
@@ -230,14 +233,55 @@ function playCard(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, card
     ...muushig.publicState(room),
   }, rooms);
 
-  if (state.trick.length >= muushig.enteredPlayers(room).length) {
+  if (muushig.trickIsResolved(room) || state.trick.length >= muushig.enteredPlayers(room).length) {
     finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerFn);
     return { ok: true, trickComplete: true };
   }
 
-  room.currentPlayerIndex = muushig.nextEnteredIndex(room, room.currentPlayerIndex);
+  const next = muushig.nextUnresolvedIndex(room, room.currentPlayerIndex);
+  room.currentPlayerIndex = next >= 0 ? next : muushig.nextEnteredIndex(room, room.currentPlayerIndex);
   startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
   return { ok: true };
+}
+
+function handleOnjih(roomId, rooms, broadcastToRoom, startTurnTimerFn, player) {
+  const room = rooms[roomId];
+  const state = room.muushig;
+  if (!state || state.phase !== 'play') {
+    return { ok: false, error: 'Not play phase' };
+  }
+  if (!state.entered[player.playerId]) {
+    return { ok: false, error: 'Sat out this round' };
+  }
+  if (muushig.hasResolvedThisTrick(state, player.playerId)) {
+    return { ok: false, error: 'Already played' };
+  }
+  state.passedThisTrick = state.passedThisTrick || {};
+  state.passedThisTrick[player.playerId] = true;
+
+  broadcastToRoom(roomId, {
+    type: 'opponentPass',
+    player: player.playerId,
+    action: 'onjih',
+    cardCounts: getPlayerCardCounts(room),
+    ...muushig.publicState(room),
+  }, rooms);
+
+  if (muushig.trickIsResolved(room)) {
+    if (state.trick.length === 0) {
+      state.passedThisTrick = {};
+      room.currentPlayerIndex = muushig.nextEnteredIndex(room, room.currentPlayerIndex);
+      startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+      return { ok: true, passed: true };
+    }
+    finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+    return { ok: true, passed: true, trickComplete: true };
+  }
+
+  const next = muushig.nextUnresolvedIndex(room, room.currentPlayerIndex);
+  room.currentPlayerIndex = next >= 0 ? next : muushig.nextEnteredIndex(room, room.currentPlayerIndex);
+  startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+  return { ok: true, passed: true };
 }
 
 function handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, navshih, cards) {
@@ -317,6 +361,10 @@ function handleMuushigMove(roomId, rooms, broadcastToRoom, startTurnTimerFn, pla
     );
   }
 
+  if (state.phase === 'play' && action === 'onjih') {
+    return handleOnjih(roomId, rooms, broadcastToRoom, startTurnTimerFn, player);
+  }
+
   if (state.phase === 'exchange') {
     const result = muushig.exchangeCards(room, player, cards || []);
     if (!result.ok) return result;
@@ -364,6 +412,9 @@ function handleMuushigPass(roomId, rooms, broadcastToRoom, startTurnTimerFn, pla
   if (state.phase === 'exchange') {
     return handleMuushigMove(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, []);
   }
+  if (state.phase === 'play') {
+    return handleOnjih(roomId, rooms, broadcastToRoom, startTurnTimerFn, player);
+  }
   return { ok: false, error: 'Cannot pass during play' };
 }
 
@@ -372,6 +423,7 @@ function handleMuushigRestart(roomId, rooms, broadcastToRoom, startTurnTimerFn) 
   if (room.players.length < 2) {
     return { ok: false, error: 'Need at least 2 players to start' };
   }
+  allocateSeatOrder(room, { fresh: true });
   startMuushigGame(roomId, rooms, broadcastToRoom, startTurnTimerFn);
   return { ok: true };
 }
