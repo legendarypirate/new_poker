@@ -93,7 +93,7 @@ function dealMuushigRound(room) {
     trumpTaken: false,
     khozerNavshihed: false,
     stock: deck,
-    phase: 'khozer',
+    phase: 'enter',
     trick: [],
     tricksWon: Object.fromEntries(room.players.map((p) => [p.playerId, 0])),
     entered: {},
@@ -102,7 +102,7 @@ function dealMuushigRound(room) {
     sitOutStreak: previous?.sitOutStreak ? { ...previous.sitOutStreak } : {},
     dealerIndex,
   };
-  room.currentPlayerIndex = dealerIndex % room.players.length;
+  room.currentPlayerIndex = (dealerIndex + 1) % room.players.length;
   room.lastPlay = null;
   room.passCount = 0;
   return room.muushig;
@@ -135,11 +135,20 @@ function navshihKhozer(room, player, cards) {
   return { ok: true, taken, discarded, trumpSuit: state.trumpSuit };
 }
 
-function finishKhozerPhase(room) {
+function startKhozerPhase(room) {
   const state = room.muushig;
-  if (!state) return;
-  state.phase = 'enter';
-  room.currentPlayerIndex = (state.dealerIndex + 1) % room.players.length;
+  const dealer = room.players[state.dealerIndex];
+  if (!state || !dealer || !state.entered[dealer.playerId] || state.trumpTaken || !state.trump) {
+    startPlayPhase(room);
+    return false;
+  }
+  state.phase = 'khozer';
+  room.currentPlayerIndex = state.dealerIndex;
+  return true;
+}
+
+function finishKhozerPhase(room) {
+  startPlayPhase(room);
 }
 
 function cardsOwned(hand, cards) {
@@ -237,25 +246,20 @@ function exchangeCards(room, player, cards) {
   if (!cardsOwned(player.hand, cards)) {
     return { ok: false, error: 'Cards not in hand' };
   }
-  const available = state.stock.length + (state.trumpTaken ? 0 : 1);
-  if (cards.length > available) {
+  if (cards.length > state.stock.length) {
     return { ok: false, error: 'Not enough stock' };
   }
 
-  const isDealer = room.players[state.dealerIndex]?.playerId === player.playerId;
   player.hand = removeCardsFromHand(player.hand, cards);
-
+  const discarded = cards.map(normalizeCard);
   const drawn = [];
-  if (isDealer && cards.length > 0 && state.trump && !state.trumpTaken) {
-    drawn.push(state.trump);
-    state.trumpTaken = true;
-  }
-  while (drawn.length < cards.length && state.stock.length > 0) {
+  while (drawn.length < discarded.length && state.stock.length > 0) {
     drawn.push(normalizeCard(state.stock.shift()));
   }
+  state.stock.push(...discarded);
   player.hand.push(...drawn);
   state.exchanged[player.playerId] = true;
-  return { ok: true, drawn, tookTrump: isDealer && cards.length > 0 };
+  return { ok: true, drawn, tookTrump: false };
 }
 
 function skipExchange(room, player) {
@@ -407,6 +411,7 @@ module.exports = {
   finishKhozerPhase,
   allDecided,
   startExchangePhase,
+  startKhozerPhase,
   exchangeCards,
   skipExchange,
   allExchanged,

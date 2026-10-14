@@ -131,7 +131,7 @@ function completeExchangeIfNeeded(roomId, rooms, broadcastToRoom, startTurnTimer
   const room = rooms[roomId];
   if (!muushig.allExchanged(room)) return false;
   if (maybeInstantWin(roomId, rooms, broadcastToRoom)) return true;
-  muushig.startPlayPhase(room);
+  muushig.startKhozerPhase(room);
   sendHands(room);
   broadcastToRoom(roomId, {
     type: 'muushigState',

@@ -86,9 +86,14 @@ const dealRoom = {
   players: [{ playerId: 1, hand: [] }, { playerId: 2, hand: [] }, { playerId: 3, hand: [] }],
 };
 logic.dealMuushigRound(dealRoom);
+assert.strictEqual(dealRoom.muushig.phase, 'enter');
+dealRoom.muushig.entered = Object.fromEntries(dealRoom.players.map((p) => [p.playerId, true]));
+dealRoom.muushig.exchanged = Object.fromEntries(dealRoom.players.map((p) => [p.playerId, true]));
+assert.strictEqual(logic.startKhozerPhase(dealRoom), true);
 assert.strictEqual(dealRoom.muushig.phase, 'khozer');
 assert.strictEqual(dealRoom.currentPlayerIndex, dealRoom.muushig.dealerIndex);
 assert.strictEqual(logic.canNavshihKhozer(dealRoom, dealRoom.players[dealRoom.muushig.dealerIndex].playerId), true);
+assert.strictEqual(logic.canNavshihKhozer(dealRoom, dealRoom.players[(dealRoom.muushig.dealerIndex + 1) % 3].playerId), false);
 const oldTrump = { ...dealRoom.muushig.trump };
 const dealer = dealRoom.players[dealRoom.muushig.dealerIndex];
 const giveAway = { ...dealer.hand[0] };
@@ -104,11 +109,29 @@ assert.ok(dealRoom.muushig.stock.some((c) => c.rank === giveAway.rank && c.suit 
 assert.strictEqual(dealRoom.muushig.khozerNavshihed, true);
 assert.strictEqual(logic.canNavshihKhozer(dealRoom, dealer.playerId), false);
 logic.finishKhozerPhase(dealRoom);
-assert.strictEqual(dealRoom.muushig.phase, 'enter');
-assert.strictEqual(
-  dealRoom.currentPlayerIndex,
-  (dealRoom.muushig.dealerIndex + 1) % dealRoom.players.length
-);
+assert.strictEqual(dealRoom.muushig.phase, 'play');
+
+const swapRoom = {
+  players: [
+    { playerId: 1, hand: [
+      { rank: '7', suit: '♥' }, { rank: '8', suit: '♥' }, { rank: '9', suit: '♥' },
+      { rank: '10', suit: '♥' }, { rank: 'J', suit: '♥' },
+    ]},
+    { playerId: 2, hand: [
+      { rank: '7', suit: '♠' }, { rank: '8', suit: '♠' }, { rank: '9', suit: '♠' },
+      { rank: '10', suit: '♠' }, { rank: 'J', suit: '♠' },
+    ]},
+  ],
+};
+logic.dealMuushigRound(swapRoom);
+swapRoom.muushig.phase = 'exchange';
+swapRoom.muushig.entered = { 1: true, 2: true };
+const stockBefore = swapRoom.muushig.stock.length;
+const give = swapRoom.players[0].hand.slice(0, 3);
+const swapped = logic.exchangeCards(swapRoom, swapRoom.players[0], give);
+assert.strictEqual(swapped.ok, true);
+assert.strictEqual(swapRoom.players[0].hand.length, 5);
+assert.strictEqual(swapRoom.muushig.stock.length, stockBefore);
 
 const mustLeadAce = logic.legalPlayCards(
   [{ rank: '9', suit: '♥' }, { rank: 'A', suit: '♠' }],
