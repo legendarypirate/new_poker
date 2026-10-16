@@ -357,9 +357,13 @@ const payoutRoom = {
   players: [{ playerId: 1 }, { playerId: 2 }],
 };
 logic.applyTableSettings(payoutRoom, { gerPrice: 500 });
-const paid = logic.applyGerPayouts(payoutRoom, { 1: -2, 2: 5 });
-assert.strictEqual(paid.price, 500);
-assert.strictEqual(paid.payouts[1], 1000);
-assert.strictEqual(paid.payouts[2], -2500);
+logic.creditGer(payoutRoom, 1);
+logic.creditGer(payoutRoom, 1);
+assert.strictEqual(payoutRoom.muushigMatch.gers[1], 2);
+assert.strictEqual(payoutRoom.muushigMatch.gerValue[1], 1000);
+payoutRoom.muushigMatch.phase = 'boolt';
+logic.creditGer(payoutRoom, 1);
+assert.strictEqual(payoutRoom.muushigMatch.gers[1], 3);
+assert.strictEqual(payoutRoom.muushigMatch.gerValue[1], 2000);
 
 console.log('muushigLogic tests passed');

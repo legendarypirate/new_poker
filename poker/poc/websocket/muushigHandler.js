@@ -47,6 +47,7 @@ function startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
 
 function scoreboardOf(room, winnerPlayer) {
   const points = room.playerPoints || {};
+  const match = room.muushigMatch ? muushig.matchStatus(room) : null;
   return (room.players || [])
     .map((player) => ({
       playerId: player.playerId,
@@ -54,8 +55,15 @@ function scoreboardOf(room, winnerPlayer) {
       name: player.displayName || player.username || `Тоглогч ${player.playerId}`,
       points: points[player.playerId] ?? points[String(player.playerId)] ?? 15,
       winner: winnerPlayer != null && player.playerId === winnerPlayer.playerId,
+      roundWins: match?.roundWins?.[player.playerId] || 0,
+      gers: match?.gers?.[player.playerId] || 0,
+      gerValue: match?.gerValue?.[player.playerId] || 0,
     }))
-    .sort((a, b) => a.points - b.points);
+    .sort((a, b) => {
+      const byWins = (b.roundWins || 0) - (a.roundWins || 0);
+      if (byWins !== 0) return byWins;
+      return (b.gerValue || 0) - (a.gerValue || 0);
+    });
 }
 
 function finishByWinner(roomId, rooms, broadcastToRoom, winnerPlayer, extra = {}) {
@@ -205,8 +213,8 @@ function closeRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, trickWinne
   const state = room.muushig;
   const gameWinnerId = muushig.resolveRoundWinner(room);
   const deltas = muushig.applyRoundScores(room);
-  const ger = muushig.applyGerPayouts(room, deltas);
   const raceWin = gameWinnerId != null;
+  const match = muushig.matchStatus(room);
   broadcastToRoom(roomId, {
     type: 'playerWonRound',
     winner: trickWinnerId,
@@ -215,9 +223,8 @@ function closeRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, trickWinne
     tricksWon: state.tricksWon,
     raceWin,
     gameWinner: gameWinnerId,
-    gerPrice: ger.price,
-    gerPayouts: ger.payouts,
-    match: muushig.matchStatus(room),
+    gerPrice: match.currentGerPrice,
+    match,
   }, rooms);
   broadcastToRoom(roomId, {
     type: 'roundOver',
@@ -228,9 +235,8 @@ function closeRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, trickWinne
     gameEnded: false,
     raceWin,
     gameWinner: gameWinnerId,
-    gerPrice: ger.price,
-    gerPayouts: ger.payouts,
-    match: muushig.matchStatus(room),
+    gerPrice: match.currentGerPrice,
+    match,
   }, rooms);
 
   if (gameWinnerId != null) {

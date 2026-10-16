@@ -147,7 +147,9 @@ function applyTableSettings(room, raw = {}) {
     booltTotal: previous?.booltTotal || 0,
     booltPlayed: previous?.booltPlayed || 0,
     roundWins: previous?.roundWins ? { ...previous.roundWins } : {},
-    chips: previous?.chips ? { ...previous.chips } : {},
+    gers: previous?.gers ? { ...previous.gers } : {},
+    gerValue: previous?.gerValue ? { ...previous.gerValue } : {},
+    chips: previous?.gerValue ? { ...previous.gerValue } : {},
   };
   return ensureMatch(room);
 }
@@ -159,6 +161,8 @@ function resetMatchProgress(room) {
   match.booltTotal = 0;
   match.booltPlayed = 0;
   match.roundWins = {};
+  match.gers = {};
+  match.gerValue = {};
   match.chips = {};
   return ensureMatch(room);
 }
@@ -174,6 +178,8 @@ function ensureMatch(room) {
       booltTotal: 0,
       booltPlayed: 0,
       roundWins: {},
+      gers: {},
+      gerValue: {},
       chips: {},
     };
   }
@@ -181,9 +187,13 @@ function ensureMatch(room) {
     if (room.muushigMatch.roundWins[player.playerId] == null) {
       room.muushigMatch.roundWins[player.playerId] = 0;
     }
-    if (room.muushigMatch.chips[player.playerId] == null) {
-      room.muushigMatch.chips[player.playerId] = 0;
+    if (room.muushigMatch.gers[player.playerId] == null) {
+      room.muushigMatch.gers[player.playerId] = 0;
     }
+    if (room.muushigMatch.gerValue[player.playerId] == null) {
+      room.muushigMatch.gerValue[player.playerId] = 0;
+    }
+    room.muushigMatch.chips[player.playerId] = room.muushigMatch.gerValue[player.playerId];
   }
   return room.muushigMatch;
 }
@@ -193,17 +203,15 @@ function currentGerPrice(room) {
   return match.phase === 'boolt' ? match.gerPrice * 2 : match.gerPrice;
 }
 
-function applyGerPayouts(room, deltas) {
+function creditGer(room, winnerId) {
   const match = ensureMatch(room);
   const price = currentGerPrice(room);
-  const payouts = {};
-  for (const player of room.players) {
-    const delta = Number(deltas[player.playerId] ?? deltas[String(player.playerId)] ?? 0);
-    const chips = -delta * price;
-    payouts[player.playerId] = chips;
-    match.chips[player.playerId] = (match.chips[player.playerId] || 0) + chips;
-  }
-  return { price, payouts };
+  const gers = (match.gers[winnerId] || match.gers[String(winnerId)] || 0) + 1;
+  const value = (match.gerValue[winnerId] || match.gerValue[String(winnerId)] || 0) + price;
+  match.gers[winnerId] = gers;
+  match.gerValue[winnerId] = value;
+  match.chips[winnerId] = value;
+  return { price, gers, value };
 }
 
 function winlessCount(room) {
@@ -267,7 +275,9 @@ function matchStatus(room) {
     booltTotal: match.booltTotal,
     booltPlayed: match.booltPlayed,
     roundWins: { ...match.roundWins },
-    chips: { ...match.chips },
+    gers: { ...match.gers },
+    gerValue: { ...match.gerValue },
+    chips: { ...match.gerValue },
     roundIndex: inBoolt ? match.booltPlayed + 1 : match.primaryPlayed + 1,
     roundTotal: inBoolt ? Math.max(1, match.booltTotal) : match.primaryRounds,
   };
@@ -601,6 +611,7 @@ function awardTrick(room, winnerId) {
   setById(state.tricksWon, winnerId, tricksOf(room, winnerId) + 1);
   state.trickWinners = state.trickWinners || [];
   state.trickWinners.push(winnerId);
+  creditGer(room, winnerId);
   return playerCompletedWin(room, winnerId);
 }
 
@@ -709,7 +720,8 @@ module.exports = {
   resetMatchProgress,
   ensureMatch,
   currentGerPrice,
-  applyGerPayouts,
+  applyGerPayouts: creditGer,
+  creditGer,
   afterMatchRound,
   matchChampion,
   matchStatus,
