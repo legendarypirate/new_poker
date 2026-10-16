@@ -1104,6 +1104,9 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
       spectators: [], // Initialize spectators array
       maxPlayers: maxPlayersFor(gameType)
     };
+    if (isMuushig) {
+      muushigLogic.applyTableSettings(rooms[actualRoomId], msg);
+    }
   } else {
     const existingRoom = rooms[actualRoomId];
     console.log(`✅ Room exists: ${actualRoomId} with ${existingRoom.players.length} players`);
@@ -1138,6 +1141,12 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
   }
   if (!room.gameType) {
     room.gameType = gameType;
+  }
+  if (isMuushig && !room.gameStarted) {
+    const hasSettings = msg.gerPrice != null || msg.boolt != null || msg.booltEnabled != null || msg.rounds != null;
+    if (hasSettings || !room.muushigMatch) {
+      muushigLogic.applyTableSettings(room, msg);
+    }
   }
 
   // Check if username already exists in the room (reconnection)
@@ -1302,6 +1311,7 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
           playerId,
           actualRoomId: roomId, // Include actual roomId for debugging
           gameType: room.gameType || 'mongol_13',
+          ...(isMuushigRoom(room) ? { match: muushigLogic.matchStatus(room) } : {}),
         })
       );
 

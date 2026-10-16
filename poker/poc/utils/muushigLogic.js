@@ -7,6 +7,9 @@ const WIN_AT = 0;
 const EMPTY_TRICK_PENALTY = 5;
 const HAND_SIZE = 5;
 const MAX_SIT_OUT_STREAK = 3;
+const BOOLT_PRIMARY_ROUNDS = 5;
+const MAX_MATCH_ROUNDS = 10;
+const DEFAULT_GER_PRICE = 500;
 
 function rankValue(rank) {
   const value = RANKS.indexOf(rank);
@@ -66,12 +69,208 @@ function ensureMuushigPoints(room) {
   }
 }
 
+function samePlayerId(a, b) {
+  return a != null && b != null && String(a) === String(b);
+}
+
+function valueById(map, playerId, fallback = 0) {
+  if (!map || playerId == null) return fallback;
+  if (map[playerId] != null) return map[playerId];
+  if (map[String(playerId)] != null) return map[String(playerId)];
+  const asNum = Number(playerId);
+  if (!Number.isNaN(asNum) && map[asNum] != null) return map[asNum];
+  return fallback;
+}
+
+function setById(map, playerId, value) {
+  if (!map || playerId == null) return;
+  map[playerId] = value;
+  const alt = String(playerId);
+  if (alt !== playerId && map[alt] != null) map[alt] = value;
+}
+
+function findPlayer(room, playerId) {
+  return room.players.find((player) => samePlayerId(player.playerId, playerId)) || null;
+}
+
+function snapshotRoundStartPoints(room) {
+  ensureMuushigPoints(room);
+  return Object.fromEntries(
+    room.players.map((player) => [player.playerId, room.playerPoints[player.playerId]])
+  );
+}
+
+function roundStartPointsOf(room, playerId) {
+  const snap = room.muushig?.roundStartPoints;
+  const fromSnap = valueById(snap, playerId, null);
+  if (fromSnap != null) return Number(fromSnap);
+  return Number(valueById(room.playerPoints, playerId, START_POINTS));
+}
+
+function tricksOf(room, playerId) {
+  return Number(valueById(room.muushig?.tricksWon, playerId, 0));
+}
+
 function resetMuushigPoints(room) {
   room.playerPoints = {};
   for (const player of room.players) {
     room.playerPoints[player.playerId] = START_POINTS;
   }
   if (room.muushig) room.muushig.sitOutStreak = {};
+}
+
+function clampGerPrice(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_GER_PRICE;
+  return Math.min(100000, Math.round(n));
+}
+
+function clampMatchRounds(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return BOOLT_PRIMARY_ROUNDS;
+  return Math.max(1, Math.min(MAX_MATCH_ROUNDS, Math.round(n)));
+}
+
+function applyTableSettings(room, raw = {}) {
+  const booltEnabled = raw.boolt === true || raw.booltEnabled === true;
+  const gerPrice = clampGerPrice(raw.gerPrice ?? raw.ger_price ?? room.muushigMatch?.gerPrice);
+  const primaryRounds = booltEnabled
+    ? BOOLT_PRIMARY_ROUNDS
+    : clampMatchRounds(raw.rounds ?? raw.maxRounds ?? room.muushigMatch?.primaryRounds);
+  const previous = room.muushigMatch;
+  room.muushigMatch = {
+    booltEnabled,
+    gerPrice,
+    primaryRounds,
+    phase: previous?.phase || 'primary',
+    primaryPlayed: previous?.primaryPlayed || 0,
+    booltTotal: previous?.booltTotal || 0,
+    booltPlayed: previous?.booltPlayed || 0,
+    roundWins: previous?.roundWins ? { ...previous.roundWins } : {},
+    chips: previous?.chips ? { ...previous.chips } : {},
+  };
+  return ensureMatch(room);
+}
+
+function resetMatchProgress(room) {
+  const match = ensureMatch(room);
+  match.phase = 'primary';
+  match.primaryPlayed = 0;
+  match.booltTotal = 0;
+  match.booltPlayed = 0;
+  match.roundWins = {};
+  match.chips = {};
+  return ensureMatch(room);
+}
+
+function ensureMatch(room) {
+  if (!room.muushigMatch) {
+    room.muushigMatch = {
+      booltEnabled: false,
+      gerPrice: DEFAULT_GER_PRICE,
+      primaryRounds: BOOLT_PRIMARY_ROUNDS,
+      phase: 'primary',
+      primaryPlayed: 0,
+      booltTotal: 0,
+      booltPlayed: 0,
+      roundWins: {},
+      chips: {},
+    };
+  }
+  for (const player of room.players || []) {
+    if (room.muushigMatch.roundWins[player.playerId] == null) {
+      room.muushigMatch.roundWins[player.playerId] = 0;
+    }
+    if (room.muushigMatch.chips[player.playerId] == null) {
+      room.muushigMatch.chips[player.playerId] = 0;
+    }
+  }
+  return room.muushigMatch;
+}
+
+function currentGerPrice(room) {
+  const match = ensureMatch(room);
+  return match.phase === 'boolt' ? match.gerPrice * 2 : match.gerPrice;
+}
+
+function applyGerPayouts(room, deltas) {
+  const match = ensureMatch(room);
+  const price = currentGerPrice(room);
+  const payouts = {};
+  for (const player of room.players) {
+    const delta = Number(deltas[player.playerId] ?? deltas[String(player.playerId)] ?? 0);
+    const chips = -delta * price;
+    payouts[player.playerId] = chips;
+    match.chips[player.playerId] = (match.chips[player.playerId] || 0) + chips;
+  }
+  return { price, payouts };
+}
+
+function winlessCount(room) {
+  const match = ensureMatch(room);
+  return room.players.filter((player) => (match.roundWins[player.playerId] || 0) === 0).length;
+}
+
+function afterMatchRound(room, winnerId) {
+  const match = ensureMatch(room);
+  match.roundWins[winnerId] = (match.roundWins[winnerId] || 0) + 1;
+  if (match.phase === 'boolt') match.booltPlayed += 1;
+  else match.primaryPlayed += 1;
+
+  if (match.phase === 'primary') {
+    if (match.primaryPlayed < match.primaryRounds) {
+      return { done: false, next: 'primary' };
+    }
+    if (match.booltEnabled) {
+      match.booltTotal = winlessCount(room);
+      if (match.booltTotal > 0) {
+        match.phase = 'boolt';
+        return { done: false, next: 'boolt', booltRounds: match.booltTotal };
+      }
+    }
+    return { done: true };
+  }
+  if (match.booltPlayed < match.booltTotal) {
+    return { done: false, next: 'boolt' };
+  }
+  return { done: true };
+}
+
+function matchChampion(room) {
+  const match = ensureMatch(room);
+  let best = null;
+  let bestWins = -1;
+  let bestChips = -Infinity;
+  for (const player of room.players) {
+    const wins = match.roundWins[player.playerId] || 0;
+    const chips = match.chips[player.playerId] || 0;
+    if (wins > bestWins || (wins === bestWins && chips > bestChips)) {
+      bestWins = wins;
+      bestChips = chips;
+      best = player;
+    }
+  }
+  return best;
+}
+
+function matchStatus(room) {
+  const match = ensureMatch(room);
+  const inBoolt = match.phase === 'boolt';
+  return {
+    booltEnabled: !!match.booltEnabled,
+    booltPhase: inBoolt,
+    phase: match.phase,
+    gerPrice: match.gerPrice,
+    currentGerPrice: currentGerPrice(room),
+    primaryRounds: match.primaryRounds,
+    primaryPlayed: match.primaryPlayed,
+    booltTotal: match.booltTotal,
+    booltPlayed: match.booltPlayed,
+    roundWins: { ...match.roundWins },
+    chips: { ...match.chips },
+    roundIndex: inBoolt ? match.booltPlayed + 1 : match.primaryPlayed + 1,
+    roundTotal: inBoolt ? Math.max(1, match.booltTotal) : match.primaryRounds,
+  };
 }
 
 function emptyByPlayer(room, value = false) {
@@ -97,6 +296,8 @@ function dealMuushigRound(room) {
     phase: 'enter',
     trick: [],
     tricksWon: Object.fromEntries(room.players.map((p) => [p.playerId, 0])),
+    trickWinners: [],
+    roundStartPoints: snapshotRoundStartPoints(room),
     entered: {},
     satOut: {},
     exchanged: {},
@@ -380,11 +581,11 @@ function applyRoundScores(room) {
   const state = room.muushig;
   const deltas = {};
   for (const player of room.players) {
-    if (state.satOut[player.playerId]) {
+    if (valueById(state.satOut, player.playerId, false)) {
       deltas[player.playerId] = 0;
       continue;
     }
-    const tricks = state.tricksWon[player.playerId] || 0;
+    const tricks = tricksOf(room, player.playerId);
     const delta = tricks === 0 ? EMPTY_TRICK_PENALTY : -tricks;
     deltas[player.playerId] = delta;
     room.playerPoints[player.playerId] =
@@ -393,7 +594,54 @@ function applyRoundScores(room) {
   return deltas;
 }
 
+function awardTrick(room, winnerId) {
+  const state = room.muushig;
+  if (!state || winnerId == null) return false;
+  state.tricksWon = state.tricksWon || {};
+  setById(state.tricksWon, winnerId, tricksOf(room, winnerId) + 1);
+  state.trickWinners = state.trickWinners || [];
+  state.trickWinners.push(winnerId);
+  return playerCompletedWin(room, winnerId);
+}
+
+function playerCompletedWin(room, playerId) {
+  const need = roundStartPointsOf(room, playerId);
+  if (!(need > WIN_AT)) return false;
+  return tricksOf(room, playerId) >= need;
+}
+
+// First player, in trick order, to collect as many gers as they still needed
+// at the start of the round. Works for any table size and any scores
+// (e.g. 3-1-1): a 3-point player can beat two 1-point players if they
+// finish their 3 gers before anyone else finishes theirs.
+function firstToCompleteWin(room) {
+  const state = room.muushig;
+  if (!state) return null;
+  const counts = {};
+  for (const winnerId of state.trickWinners || []) {
+    const key = String(winnerId);
+    counts[key] = (counts[key] || 0) + 1;
+    const need = roundStartPointsOf(room, winnerId);
+    if (need > WIN_AT && counts[key] >= need) return winnerId;
+  }
+  return null;
+}
+
+function resolveRoundWinner(room) {
+  return firstToCompleteWin(room);
+}
+
 function finishedWinners(room) {
+  const first = firstToCompleteWin(room);
+  if (first != null) {
+    const rest = room.players
+      .filter((player) =>
+        !samePlayerId(player.playerId, first) &&
+        (room.playerPoints[player.playerId] ?? START_POINTS) <= WIN_AT
+      )
+      .map((player) => player.playerId);
+    return [first, ...rest];
+  }
   return room.players
     .filter((player) => (room.playerPoints[player.playerId] ?? START_POINTS) <= WIN_AT)
     .map((player) => player.playerId);
@@ -401,15 +649,19 @@ function finishedWinners(room) {
 
 function publicState(room) {
   const state = room.muushig;
-  if (!state) return {};
+  const match = room.muushigMatch ? matchStatus(room) : undefined;
+  if (!state) return match ? { match } : {};
   return {
     gameType: 'muushig',
+    match,
     phase: state.phase,
     trump: state.trumpTaken ? null : state.trump,
     trumpSuit: state.trumpSuit,
     trumpTaken: !!state.trumpTaken,
     stockLeft: state.stock.length,
     tricksWon: state.tricksWon,
+    trickWinners: Array.isArray(state.trickWinners) ? state.trickWinners.slice() : [],
+    roundStartPoints: { ...(state.roundStartPoints || {}) },
     trick: state.trick.map((play) => ({
       player: play.playerId,
       rank: play.card.rank,
@@ -446,10 +698,21 @@ module.exports = {
   WIN_AT,
   HAND_SIZE,
   MAX_SIT_OUT_STREAK,
+  BOOLT_PRIMARY_ROUNDS,
+  MAX_MATCH_ROUNDS,
+  DEFAULT_GER_PRICE,
   rankValue,
   createMuushigDeck,
   ensureMuushigPoints,
   resetMuushigPoints,
+  applyTableSettings,
+  resetMatchProgress,
+  ensureMatch,
+  currentGerPrice,
+  applyGerPayouts,
+  afterMatchRound,
+  matchChampion,
+  matchStatus,
   dealMuushigRound,
   decideEnter,
   canSitOut,
@@ -472,7 +735,13 @@ module.exports = {
   lowestLegalCard,
   trickWinner,
   applyRoundScores,
+  awardTrick,
+  playerCompletedWin,
+  firstToCompleteWin,
+  resolveRoundWinner,
   finishedWinners,
+  findPlayer,
+  samePlayerId,
   findFourAcesWinner,
   publicState,
   hasPlayedThisTrick,

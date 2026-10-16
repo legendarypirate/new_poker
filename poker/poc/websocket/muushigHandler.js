@@ -45,6 +45,19 @@ function startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
   broadcastTurn(roomId, rooms, broadcastToRoom);
 }
 
+function scoreboardOf(room, winnerPlayer) {
+  const points = room.playerPoints || {};
+  return (room.players || [])
+    .map((player) => ({
+      playerId: player.playerId,
+      userId: player.userId,
+      name: player.displayName || player.username || `Тоглогч ${player.playerId}`,
+      points: points[player.playerId] ?? points[String(player.playerId)] ?? 15,
+      winner: winnerPlayer != null && player.playerId === winnerPlayer.playerId,
+    }))
+    .sort((a, b) => a.points - b.points);
+}
+
 function finishByWinner(roomId, rooms, broadcastToRoom, winnerPlayer, extra = {}) {
   const room = rooms[roomId];
   room.gameFinished = true;
@@ -70,19 +83,58 @@ function finishByWinner(roomId, rooms, broadcastToRoom, winnerPlayer, extra = {}
     type: 'gameOver',
     winner: winnerPlayer.playerId,
     points: room.playerPoints || {},
+    scoreboard: scoreboardOf(room, winnerPlayer),
     gameType: 'muushig',
     ...extra,
   }, rooms);
 }
 
-function maybeInstantWin(roomId, rooms, broadcastToRoom) {
+function maybeInstantWin(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
   const room = rooms[roomId];
   const winner = muushig.findFourAcesWinner(room);
   if (!winner) return false;
   for (const player of room.players) {
     room.playerPoints[player.playerId] = player.playerId === winner.playerId ? 0 : 15;
   }
-  finishByWinner(roomId, rooms, broadcastToRoom, winner, { fourAces: true });
+  completeMatchRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, winner, { fourAces: true });
+  return true;
+}
+
+function completeMatchRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, winnerPlayer, extra = {}) {
+  const room = rooms[roomId];
+  if (!winnerPlayer) return true;
+  const result = muushig.afterMatchRound(room, winnerPlayer.playerId);
+  const match = muushig.matchStatus(room);
+  broadcastToRoom(roomId, {
+    type: 'matchRoundOver',
+    winner: winnerPlayer.playerId,
+    points: room.playerPoints,
+    match,
+    fourAces: extra.fourAces === true,
+    raceWin: extra.raceWin === true,
+    matchEnded: result.done,
+    next: result.next,
+  }, rooms);
+
+  if (result.done) {
+    const champion = muushig.matchChampion(room) || winnerPlayer;
+    finishByWinner(roomId, rooms, broadcastToRoom, champion, {
+      ...extra,
+      match,
+    });
+    return true;
+  }
+
+  setTimeout(() => {
+    if (!rooms[roomId] || rooms[roomId].gameFinished) return;
+    muushig.resetMuushigPoints(room);
+    broadcastToRoom(roomId, {
+      type: 'newMatchRound',
+      match: muushig.matchStatus(room),
+      next: result.next,
+    }, rooms);
+    beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+  }, 2400);
   return true;
 }
 
@@ -104,13 +156,15 @@ function beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, { restarte
     ...muushig.publicState(room),
   }, rooms);
 
-  if (maybeInstantWin(roomId, rooms, broadcastToRoom)) return;
+  if (maybeInstantWin(roomId, rooms, broadcastToRoom, startTurnTimerFn)) return;
   startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
 }
 
 function startMuushigGame(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
   const room = rooms[roomId];
   allocateSeatOrder(room);
+  muushig.ensureMatch(room);
+  muushig.resetMatchProgress(room);
   muushig.resetMuushigPoints(room);
   beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn);
 }
@@ -132,7 +186,7 @@ function completeEnterIfNeeded(roomId, rooms, broadcastToRoom, startTurnTimerFn)
 function completeExchangeIfNeeded(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
   const room = rooms[roomId];
   if (!muushig.allExchanged(room)) return false;
-  if (maybeInstantWin(roomId, rooms, broadcastToRoom)) return true;
+  if (maybeInstantWin(roomId, rooms, broadcastToRoom, startTurnTimerFn)) return true;
   // Navshih is only offered after солих, immediately before play starts.
   muushig.startKhozerPhase(room);
   sendHands(room);
@@ -146,57 +200,82 @@ function completeExchangeIfNeeded(roomId, rooms, broadcastToRoom, startTurnTimer
   return true;
 }
 
+function closeRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, trickWinnerId) {
+  const room = rooms[roomId];
+  const state = room.muushig;
+  const gameWinnerId = muushig.resolveRoundWinner(room);
+  const deltas = muushig.applyRoundScores(room);
+  const ger = muushig.applyGerPayouts(room, deltas);
+  const raceWin = gameWinnerId != null;
+  broadcastToRoom(roomId, {
+    type: 'playerWonRound',
+    winner: trickWinnerId,
+    points: deltas,
+    totalPoints: room.playerPoints,
+    tricksWon: state.tricksWon,
+    raceWin,
+    gameWinner: gameWinnerId,
+    gerPrice: ger.price,
+    gerPayouts: ger.payouts,
+    match: muushig.matchStatus(room),
+  }, rooms);
+  broadcastToRoom(roomId, {
+    type: 'roundOver',
+    winner: trickWinnerId,
+    points: deltas,
+    totalPoints: room.playerPoints,
+    loseAt: muushig.WIN_AT,
+    gameEnded: false,
+    raceWin,
+    gameWinner: gameWinnerId,
+    gerPrice: ger.price,
+    gerPayouts: ger.payouts,
+    match: muushig.matchStatus(room),
+  }, rooms);
+
+  if (gameWinnerId != null) {
+    const winnerPlayer = muushig.findPlayer(room, gameWinnerId);
+    completeMatchRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, winnerPlayer, { raceWin });
+    return true;
+  }
+
+  setTimeout(() => {
+    if (!rooms[roomId] || rooms[roomId].gameFinished) return;
+    broadcastToRoom(roomId, { type: 'newRoundStart' }, rooms);
+    beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+  }, 2200);
+  return false;
+}
+
 function finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
   const room = rooms[roomId];
   const state = room.muushig;
   const winnerId = muushig.trickWinner(state.trick, state.trumpSuit);
-  state.tricksWon[winnerId] = (state.tricksWon[winnerId] || 0) + 1;
+  const completedWin = muushig.awardTrick(room, winnerId);
   const trickCards = state.trick.map((play) => play.card);
   broadcastToRoom(roomId, {
     type: 'trickOver',
     winner: winnerId,
     cards: trickCards,
     tricksWon: state.tricksWon,
+    raceWin: completedWin,
     cardCounts: getPlayerCardCounts(room),
     ...muushig.publicState(room),
   }, rooms);
 
-  const active = muushig.enteredPlayers(room);
-  const handsEmpty = active.every((player) => player.hand.length === 0);
-  if (handsEmpty) {
-    const deltas = muushig.applyRoundScores(room);
-    const winners = muushig.finishedWinners(room);
-    broadcastToRoom(roomId, {
-      type: 'playerWonRound',
-      winner: winnerId,
-      points: deltas,
-      totalPoints: room.playerPoints,
-      tricksWon: state.tricksWon,
-    }, rooms);
-    broadcastToRoom(roomId, {
-      type: 'roundOver',
-      winner: winnerId,
-      points: deltas,
-      totalPoints: room.playerPoints,
-      loseAt: muushig.WIN_AT,
-      gameEnded: winners.length > 0,
-    }, rooms);
-
-    if (winners.length > 0) {
-      const winnerPlayer = room.players.find((p) => p.playerId === winners[0]);
-      finishByWinner(roomId, rooms, broadcastToRoom, winnerPlayer);
-      return;
-    }
-
-    setTimeout(() => {
-      if (!rooms[roomId] || rooms[roomId].gameFinished) return;
-      broadcastToRoom(roomId, { type: 'newRoundStart' }, rooms);
-      beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn);
-    }, 2200);
+  if (completedWin) {
+    closeRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, winnerId);
     return;
   }
 
-  const winnerIndex = room.players.findIndex((player) => player.playerId === winnerId);
+  const active = muushig.enteredPlayers(room);
+  const handsEmpty = active.every((player) => player.hand.length === 0);
+  if (handsEmpty) {
+    closeRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, winnerId);
+    return;
+  }
+
+  const winnerIndex = room.players.findIndex((player) => muushig.samePlayerId(player.playerId, winnerId));
   room.currentPlayerIndex = winnerIndex >= 0 ? winnerIndex : muushig.nextEnteredIndex(room, state.dealerIndex);
   state.trick = [];
   state.passedThisTrick = {};

@@ -257,4 +257,109 @@ assert.strictEqual(logic.trickIsResolved(onjihRoom), false);
 onjihRoom.muushig.passedThisTrick[3] = true;
 assert.strictEqual(logic.trickIsResolved(onjihRoom), true);
 
+function raceTable(pointsById) {
+  const ids = Object.keys(pointsById).map(Number);
+  const room = roomWithHands(ids.map(() => [['A', '♥']]));
+  room.players = ids.map((id) => ({ playerId: id, hand: [{ rank: 'A', suit: '♥' }] }));
+  room.playerPoints = { ...pointsById };
+  room.muushig.roundStartPoints = { ...pointsById };
+  room.muushig.tricksWon = Object.fromEntries(ids.map((id) => [id, 0]));
+  room.muushig.trickWinners = [];
+  room.muushig.entered = Object.fromEntries(ids.map((id) => [id, true]));
+  return room;
+}
+
+const raceRoom = raceTable({ 1: 2, 2: 1 });
+assert.strictEqual(logic.awardTrick(raceRoom, 1), false);
+assert.strictEqual(logic.awardTrick(raceRoom, 2), true);
+assert.strictEqual(logic.resolveRoundWinner(raceRoom), 2);
+
+const raceTwoFirst = raceTable({ 1: 2, 2: 1 });
+assert.strictEqual(logic.awardTrick(raceTwoFirst, 1), false);
+assert.strictEqual(logic.awardTrick(raceTwoFirst, 1), true);
+assert.strictEqual(logic.resolveRoundWinner(raceTwoFirst), 1);
+assert.strictEqual(logic.playerCompletedWin(raceTwoFirst, 2), false);
+
+const threeOneOne = raceTable({ 1: 3, 2: 1, 3: 1 });
+assert.strictEqual(logic.awardTrick(threeOneOne, 1), false);
+assert.strictEqual(logic.awardTrick(threeOneOne, 1), false);
+assert.strictEqual(logic.awardTrick(threeOneOne, 1), true);
+assert.strictEqual(logic.resolveRoundWinner(threeOneOne), 1);
+assert.strictEqual(logic.playerCompletedWin(threeOneOne, 2), false);
+assert.strictEqual(logic.playerCompletedWin(threeOneOne, 3), false);
+
+const onePointFinishesFirst = raceTable({ 1: 3, 2: 1, 3: 1 });
+assert.strictEqual(logic.awardTrick(onePointFinishesFirst, 1), false);
+assert.strictEqual(logic.awardTrick(onePointFinishesFirst, 3), true);
+assert.strictEqual(logic.resolveRoundWinner(onePointFinishesFirst), 3);
+
+const laterPlayerArrayOrder = raceTable({ 10: 1, 20: 4, 30: 1 });
+assert.strictEqual(logic.awardTrick(laterPlayerArrayOrder, 20), false);
+assert.strictEqual(logic.awardTrick(laterPlayerArrayOrder, 20), false);
+assert.strictEqual(logic.awardTrick(laterPlayerArrayOrder, 20), false);
+assert.strictEqual(logic.awardTrick(laterPlayerArrayOrder, 20), true);
+assert.strictEqual(logic.resolveRoundWinner(laterPlayerArrayOrder), 20);
+
+const stringIds = raceTable({ 1: 3, 2: 1, 3: 1 });
+assert.strictEqual(logic.awardTrick(stringIds, '1'), false);
+assert.strictEqual(logic.awardTrick(stringIds, '1'), false);
+assert.strictEqual(logic.awardTrick(stringIds, '1'), true);
+assert.strictEqual(String(logic.resolveRoundWinner(stringIds)), '1');
+
+const fullRoundBothWouldFinish = raceTable({ 1: 3, 2: 1, 3: 1 });
+for (const winner of [1, 2, 1, 3, 1]) logic.awardTrick(fullRoundBothWouldFinish, winner);
+assert.strictEqual(logic.resolveRoundWinner(fullRoundBothWouldFinish), 2);
+
+const dealSnap = {
+  players: [{ playerId: 1, hand: [] }, { playerId: 2, hand: [] }, { playerId: 3, hand: [] }],
+  playerPoints: { 1: 3, 2: 1, 3: 1 },
+};
+logic.dealMuushigRound(dealSnap);
+assert.deepStrictEqual(dealSnap.muushig.roundStartPoints, { 1: 3, 2: 1, 3: 1 });
+assert.deepStrictEqual(dealSnap.muushig.trickWinners, []);
+
+const seriesRoom = {
+  players: [{ playerId: 1 }, { playerId: 2 }, { playerId: 3 }],
+};
+logic.applyTableSettings(seriesRoom, { boolt: false, rounds: 3, gerPrice: 500 });
+assert.strictEqual(seriesRoom.muushigMatch.primaryRounds, 3);
+assert.strictEqual(logic.currentGerPrice(seriesRoom), 500);
+let series = logic.afterMatchRound(seriesRoom, 1);
+assert.strictEqual(series.done, false);
+series = logic.afterMatchRound(seriesRoom, 2);
+assert.strictEqual(series.done, false);
+series = logic.afterMatchRound(seriesRoom, 1);
+assert.strictEqual(series.done, true);
+assert.strictEqual(logic.matchChampion(seriesRoom).playerId, 1);
+
+const booltRoom = {
+  players: [{ playerId: 1 }, { playerId: 2 }, { playerId: 3 }],
+};
+logic.applyTableSettings(booltRoom, { boolt: true, gerPrice: 1000 });
+assert.strictEqual(booltRoom.muushigMatch.primaryRounds, 5);
+assert.strictEqual(logic.currentGerPrice(booltRoom), 1000);
+for (let i = 0; i < 4; i++) {
+  const step = logic.afterMatchRound(booltRoom, 1);
+  assert.strictEqual(step.done, false);
+  assert.strictEqual(step.next, 'primary');
+}
+const intoBoolt = logic.afterMatchRound(booltRoom, 1);
+assert.strictEqual(intoBoolt.done, false);
+assert.strictEqual(intoBoolt.next, 'boolt');
+assert.strictEqual(intoBoolt.booltRounds, 2);
+assert.strictEqual(logic.currentGerPrice(booltRoom), 2000);
+const booltOne = logic.afterMatchRound(booltRoom, 2);
+assert.strictEqual(booltOne.done, false);
+const booltTwo = logic.afterMatchRound(booltRoom, 3);
+assert.strictEqual(booltTwo.done, true);
+
+const payoutRoom = {
+  players: [{ playerId: 1 }, { playerId: 2 }],
+};
+logic.applyTableSettings(payoutRoom, { gerPrice: 500 });
+const paid = logic.applyGerPayouts(payoutRoom, { 1: -2, 2: 5 });
+assert.strictEqual(paid.price, 500);
+assert.strictEqual(paid.payouts[1], 1000);
+assert.strictEqual(paid.payouts[2], -2500);
+
 console.log('muushigLogic tests passed');
