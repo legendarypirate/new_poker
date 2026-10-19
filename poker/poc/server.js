@@ -36,6 +36,7 @@ require("./app/routes/user_statistics.routes")(app);
 require("./app/routes/withdrawal.routes")(app);
 require("./app/routes/admin.routes")(app);
 require("./app/routes/tournament.routes")(app);
+require("./app/routes/social.routes")(app);
 
 // Sync database
 db.sequelize
@@ -70,6 +71,7 @@ const roomReadyStatus = new Map();
 
 // Import handlers
 const { handleAdminMessage, handleUserAdminMessage, removeAdminConnection, removeAdminChatUser, getUserChat } = require('./websocket/adminHandler');
+const { handleSocialMessage, removeSocialConnection } = require('./websocket/socialHandler');
 const { 
   handleGameMessage, 
   handleJoinRoom, 
@@ -124,6 +126,10 @@ wss.on("connection", (ws, req) => {
     // Handle admin messages
     if (handleAdminMessage(msg, ws, rooms)) {
       isAdmin = true;
+      return;
+    }
+
+    if (handleSocialMessage(msg, ws)) {
       return;
     }
 
@@ -281,6 +287,7 @@ wss.on("connection", (ws, req) => {
 
     // Remove admin chat user if exists
     removeAdminChatUser(ws);
+    removeSocialConnection(ws);
 
     // Capture gameId before disconnect (room may be cleaned up)
     const { getRoomGameId, clearPlayerState } = require('./websocket/disconnectHandler');

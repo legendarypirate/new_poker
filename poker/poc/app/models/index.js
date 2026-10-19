@@ -45,6 +45,7 @@ db.tournaments = require("./tournament.model.js")(sequelize, Sequelize);
 db.withdrawals = require("./withdrawal.model.js")(sequelize, Sequelize);
 db.player_states = require("./player_state.model.js")(sequelize, Sequelize);
 db.platform_charges = require("./platform_charge.model.js")(sequelize, Sequelize);
+db.direct_messages = require("./direct_message.model.js")(sequelize, Sequelize);
 
 
 
@@ -62,5 +63,9 @@ db.platform_charges.belongsTo(db.games, { foreignKey: "game_id", as: "game" });
 db.games.hasMany(db.platform_charges, { foreignKey: "game_id", as: "platformCharges" });
 db.games.belongsTo(db.users, { foreignKey: "winner", as: "winnerUser" });
 db.users.hasMany(db.games, { foreignKey: "winner", as: "wonGames" });
+db.direct_messages.belongsTo(db.users, { foreignKey: "from_user_id", as: "fromUser" });
+db.direct_messages.belongsTo(db.users, { foreignKey: "to_user_id", as: "toUser" });
+db.users.hasMany(db.direct_messages, { foreignKey: "from_user_id", as: "sentMessages" });
+db.users.hasMany(db.direct_messages, { foreignKey: "to_user_id", as: "receivedMessages" });
 
 module.exports = db;
