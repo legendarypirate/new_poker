@@ -51,7 +51,7 @@ async function handlePlayerDisconnect(userId, gameId, roomId, rooms, onAutoFold)
       }
     );
 
-    console.log(`⏱️ Player ${userId} disconnected from game ${gameId}, starting 60s reconnection timer`);
+    console.log(`⏱️ Player ${userId} disconnected from game ${gameId}, starting 30m reconnection timer`);
 
     // Clear any existing timer
     if (disconnectTimers.has(timerKey)) {
@@ -73,7 +73,7 @@ async function handlePlayerDisconnect(userId, gameId, roomId, rooms, onAutoFold)
       }
 
       disconnectTimers.delete(timerKey);
-    }, 60000); // 60 seconds
+    }, 30 * 60 * 1000); // 30 minutes to reopen the app
 
     disconnectTimers.set(timerKey, timer);
   } catch (error) {

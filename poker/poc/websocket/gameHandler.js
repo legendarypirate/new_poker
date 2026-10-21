@@ -1209,6 +1209,19 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
         }));
       }
 
+      if (isMuushigRoom(room) && room.gameStarted && !room.gameFinished) {
+        const cardCounts = {};
+        for (const seated of room.players) {
+          cardCounts[seated.playerId] = (seated.hand || []).length;
+        }
+        ws.send(JSON.stringify({
+          type: 'gameStart',
+          firstPlayer: room.players[room.currentPlayerIndex]?.playerId,
+          cardCounts,
+          ...muushigLogic.publicState(room),
+        }));
+      }
+
       const turnPlayer = (room.gameType === 'texas' && room.texas?.playersOrder && room.texas.actingIndex != null)
         ? room.texas.playersOrder[room.texas.actingIndex]
         : room.currentPlayerIndex !== undefined ? room.players[room.currentPlayerIndex]?.playerId : undefined;
@@ -1434,23 +1447,11 @@ async function handlePlayerDisconnect(roomId, player, rooms, roomReadyStatus, br
     }
   }
 
-  // Check if all players have disconnected from a started game
+  // Keep an in-progress room alive so players can reopen the app and rejoin.
   const connectedPlayers = room.players.filter(p => p.ws && p.ws.readyState === 1);
   if (room.gameStarted && connectedPlayers.length === 0 && room.players.length > 0) {
-    // All players disconnected - finish the game (don't reduce balance)
-    await finishGameWhenAllPlayersLeft(roomId, room, gameId);
-
-    // Broadcast player count before cleaning up (0 players)
-    // broadcastPlayerCount is a bound function that includes wss, so call with just roomId
+    console.log(`⏸️ All players disconnected from room ${roomId}; keeping game ${gameId} for reconnect`);
     broadcastPlayerCount(roomId);
-
-    // Clean up room
-    clearSinglePlayerWinnerTimer(roomId, rooms);
-    delete rooms[roomId];
-    roomReadyStatus.delete(roomId);
-    cancelAutoStart(roomId, rooms);
-    clearTurnTimer(roomId, rooms);
-    console.log(`🧹 Cleaned up room ${roomId} after all players disconnected`);
     return;
   }
 
