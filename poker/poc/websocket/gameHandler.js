@@ -331,7 +331,7 @@ async function startGame(roomId, rooms, roomReadyStatus, broadcastToRoomFn, star
       room_id: roomNumber,
       status: 1, // active
       players: playerUserIds,
-      buy_in: room.buyIn || null,
+      buy_in: room.buyIn ?? 0,
       game_type: room.gameType || 'mongol_13',
       start_time: new Date(),
       room_key: roomId || null, // websocket room id for admin spectate
@@ -1097,7 +1097,7 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
       lastPlay: null,
       passCount: 0,
       playerPoints: {},
-      buyIn: actualBuyIn || null,
+      buyIn: actualBuyIn ?? 0,
       gameType: gameType,
       tournamentId: tournamentId || null,
       originalRoomId: requestedRoomId, // Keep original for display purposes

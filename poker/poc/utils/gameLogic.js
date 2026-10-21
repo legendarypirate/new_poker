@@ -614,7 +614,7 @@ async function updateGameStatusToFinished(roomId, gameId = null) {
  */
 async function saveUserStatistics(room, gameWinner, rooms) {
   try {
-    const buyIn = room.buyIn || null;
+    const buyIn = room.buyIn ?? 0;
     const gameType = room.gameType || 'mongol_13';
     
     // Process statistics for each player
