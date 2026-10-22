@@ -82,6 +82,7 @@ const {
 } = require('./websocket/gameHandler');
 const { startTurnTimer, clearTurnTimer, startAutoStartCountdown, cancelAutoStart } = require('./websocket/timerUtils');
 const { handleTournamentMessage } = require('./websocket/tournamentHandler');
+const { handleVoiceMessage, removeVoiceConnection } = require('./websocket/voiceHandler');
 
 // Helper function to create bound broadcast function
 function createBroadcastToRoom(rooms) {
@@ -144,6 +145,11 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
+    // Handle voice channel signaling messages (WebRTC)
+    if (handleVoiceMessage(msg, ws, player, roomId)) {
+      return;
+    }
+
     // Handle join room
     if (msg.type === "joinRoom") {
       handleJoinRoom(msg, ws, rooms, roomReadyStatus, createBroadcastToRoom(rooms), createBroadcastPlayerCount(rooms))
@@ -162,6 +168,7 @@ wss.on("connection", (ws, req) => {
 
     // Handle leave room
     if (msg.type === "leaveRoom") {
+      removeVoiceConnection(ws);
       if (!roomId || !rooms[roomId] || !player) {
         ws.send(JSON.stringify({ type: "error", message: "Not in a room" }));
         return;
@@ -288,6 +295,7 @@ wss.on("connection", (ws, req) => {
     // Remove admin chat user if exists
     removeAdminChatUser(ws);
     removeSocialConnection(ws);
+    removeVoiceConnection(ws);
 
     // Capture gameId before disconnect (room may be cleaned up)
     const { getRoomGameId, clearPlayerState } = require('./websocket/disconnectHandler');
