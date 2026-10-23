@@ -51,6 +51,7 @@ function broadcastPresence(userId, online) {
     type: "presence",
     userId: Number(userId),
     online,
+    onlineUserIds: onlineUserIds(),
   });
   for (const sockets of presence.values()) {
     for (const socket of sockets) {
