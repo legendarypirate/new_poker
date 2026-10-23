@@ -1244,6 +1244,7 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
         player: player.playerId,
         username: player.username,
       }, rooms);
+      broadcastToRoom(roomId, seatedPlayersMessage(room), rooms);
 
       console.log(`🔄 Player ${player.playerId} reconnected to room ${roomId} (${username})`);
       return { player, roomId };
