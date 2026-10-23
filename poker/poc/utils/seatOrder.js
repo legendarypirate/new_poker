@@ -72,6 +72,7 @@ function allocateSeatOrder(room, { fresh = false } = {}) {
 }
 
 function seatedPlayerInfo(player) {
+  const autoPlay = !player.ws || player.ws.readyState !== 1;
   return {
     playerId: player.playerId,
     username: player.username,
@@ -80,6 +81,7 @@ function seatedPlayerInfo(player) {
     userId: player.userId,
     publicId: toPublicId(player.userId),
     handCount: player.hand ? player.hand.length : 0,
+    autoPlay,
   };
 }
 

@@ -1473,6 +1473,10 @@ async function handlePlayerDisconnect(roomId, player, rooms, roomReadyStatus, br
       disconnected: room.gameStarted, // true if game started, false if just left
     }, rooms);
 
+    if (room.gameStarted && !room.gameFinished) {
+      broadcastToRoom(roomId, seatedPlayersMessage(room), rooms);
+    }
+
     // broadcastPlayerCount is a bound function that includes wss, so call with just roomId
     broadcastPlayerCount(roomId);
 
@@ -1483,25 +1487,9 @@ async function handlePlayerDisconnect(roomId, player, rooms, roomReadyStatus, br
       });
     }
 
-    // Only continue game if there are connected players
-    if (room.currentPlayerIndex !== undefined && connectedPlayers.length > 1 && room.gameStarted) {
-      // Find next connected player
-      let nextIndex = (room.currentPlayerIndex + 1) % room.players.length;
-      let attempts = 0;
-      while (attempts < room.players.length && (!room.players[nextIndex] || !room.players[nextIndex].ws || room.players[nextIndex].ws.readyState !== 1)) {
-        nextIndex = (nextIndex + 1) % room.players.length;
-        attempts++;
-      }
-
-      if (room.players[nextIndex] && room.players[nextIndex].ws && room.players[nextIndex].ws.readyState === 1) {
-        room.currentPlayerIndex = nextIndex;
-        startTurnTimer(roomId, rooms, broadcastToRoom, () => { });
-
-        broadcastToRoom(roomId, {
-          type: "turn",
-          player: room.players[room.currentPlayerIndex].playerId,
-        }, rooms);
-      }
+    // Disconnected seats keep their turn; timer auto-plays for them (bot).
+    if (room.gameStarted && !room.gameFinished && typeof startTurnTimer === "function") {
+      startTurnTimer(roomId);
     }
   }
 
