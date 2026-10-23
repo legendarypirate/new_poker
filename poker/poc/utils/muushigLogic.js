@@ -493,6 +493,17 @@ function allExchanged(room) {
   return enteredPlayers(room).every((player) => room.muushig?.exchanged[player.playerId]);
 }
 
+/** When the stock (gazar) is empty, no one can swap — finish exchange for everyone. */
+function finalizeExchangeIfStockDepleted(room) {
+  const state = room.muushig;
+  if (!state || state.phase !== "exchange") return false;
+  if (state.stock.length > 0) return false;
+  for (const player of enteredPlayers(room)) {
+    state.exchanged[player.playerId] = true;
+  }
+  return true;
+}
+
 function startPlayPhase(room) {
   const state = room.muushig;
   state.phase = 'play';
@@ -691,9 +702,10 @@ function publicState(room) {
       : null,
     sitOutStreak: { ...(state.sitOutStreak || {}) },
     maxSitOutStreak: MAX_SIT_OUT_STREAK,
-    canNavshihKhozer: room.players[room.currentPlayerIndex]
-      ? canNavshihKhozer(room, room.players[room.currentPlayerIndex].playerId)
-      : false,
+    canNavshihKhozer:
+      state.phase === "khozer" && room.players[state.dealerIndex]
+        ? canNavshihKhozer(room, room.players[state.dealerIndex].playerId)
+        : false,
     passedThisTrick: state.passedThisTrick || {},
     turnSeconds: 20,
     startPoints: START_POINTS,
@@ -739,6 +751,7 @@ module.exports = {
   exchangeCards,
   skipExchange,
   allExchanged,
+  finalizeExchangeIfStockDepleted,
   startPlayPhase,
   enteredPlayers,
   nextEnteredIndex,

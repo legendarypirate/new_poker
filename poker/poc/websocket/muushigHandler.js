@@ -193,6 +193,7 @@ function completeEnterIfNeeded(roomId, rooms, broadcastToRoom, startTurnTimerFn)
 
 function completeExchangeIfNeeded(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
   const room = rooms[roomId];
+  muushig.finalizeExchangeIfStockDepleted(room);
   if (!muushig.allExchanged(room)) return false;
   if (maybeInstantWin(roomId, rooms, broadcastToRoom, startTurnTimerFn)) return true;
   // Navshih is only offered after солих, immediately before play starts.
