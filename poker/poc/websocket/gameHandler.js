@@ -19,6 +19,11 @@ const {
   ensureSeatOrder,
   allocateSeatOrder,
   seatedPlayersMessage,
+  chooseSeat,
+  clearPlayerSeat,
+  isPlayerSeated,
+  seatedPlayerIds,
+  ensureSeatSlots,
 } = require('../utils/seatOrder');
 const {
   startMuushigGame,
@@ -582,8 +587,23 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
       return true;
     }
 
+    case "chooseSeat": {
+      const result = chooseSeat(room, player, msg.seatIndex);
+      if (!result.ok) {
+        ws.send(JSON.stringify({ type: 'error', message: result.error || 'Could not take seat' }));
+        return true;
+      }
+      broadcastToRoom(roomId, seatedPlayersMessage(room), rooms);
+      return true;
+    }
+
     case "playerReady": {
       const { ready } = msg;
+
+      if (!isPlayerSeated(room, player.playerId)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Choose a seat first' }));
+        return true;
+      }
 
       if (!roomReadyStatus.has(roomId)) {
         roomReadyStatus.set(roomId, new Map());
@@ -602,8 +622,9 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
         status: Object.fromEntries(readyStatus)
       }, rooms);
 
-      const totalPlayers = room.players.length;
-      const readyPlayers = room.players.filter((p) => readyStatus.get(p.playerId)).length;
+      const seatedIds = seatedPlayerIds(room);
+      const totalPlayers = seatedIds.length;
+      const readyPlayers = seatedIds.filter((id) => readyStatus.get(id)).length;
 
       console.log(`✅ Player ${player.playerId} ready: ${ready} (${readyPlayers}/${totalPlayers} ready)`);
 
@@ -1102,7 +1123,8 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
       tournamentId: tournamentId || null,
       originalRoomId: requestedRoomId, // Keep original for display purposes
       spectators: [], // Initialize spectators array
-      maxPlayers: maxPlayersFor(gameType)
+      maxPlayers: maxPlayersFor(gameType),
+      seatSlots: Array(maxPlayersFor(gameType)).fill(null),
     };
     if (isMuushig) {
       muushigLogic.applyTableSettings(rooms[actualRoomId], msg);

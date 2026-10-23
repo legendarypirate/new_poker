@@ -240,7 +240,10 @@ wss.on("connection", (ws, req) => {
           return;
         } else {
           // Game not started, remove player normally
+          const { clearPlayerSeat } = require('./utils/seatOrder');
+          clearPlayerSeat(room, player.playerId);
           room.players = room.players.filter((p) => p.ws !== player.ws);
+          createBroadcastToRoom(rooms)(roomId, require('./utils/seatOrder').seatedPlayersMessage(room));
           
           if (roomReadyStatus.has(roomId)) {
             const readyStatus = roomReadyStatus.get(roomId);

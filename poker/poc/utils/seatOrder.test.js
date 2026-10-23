@@ -1,8 +1,16 @@
 const assert = require('assert');
-const { ensureSeatOrder, allocateSeatOrder, syncPlayersToSeatOrder } = require('./seatOrder');
+const {
+  ensureSeatOrder,
+  allocateSeatOrder,
+  syncPlayersToSeatOrder,
+  chooseSeat,
+  seatedPlayerIds,
+} = require('./seatOrder');
 
 const room = {
+  maxPlayers: 4,
   players: [{ playerId: 1 }, { playerId: 2 }, { playerId: 3 }],
+  seatSlots: [1, 2, 3, null],
 };
 
 ensureSeatOrder(room);
@@ -15,11 +23,15 @@ assert.deepStrictEqual(room.seatOrder, waiting);
 
 allocateSeatOrder(room);
 assert.strictEqual(room.seatOrderLocked, true);
-assert.deepStrictEqual(room.seatOrder, waiting);
+assert.strictEqual(room.seatOrder.length, 3);
 
 room.players.push({ playerId: 4 });
-ensureSeatOrder(room);
-assert.deepStrictEqual(room.seatOrder, [...waiting, 4]);
+const pick = chooseSeat(room, { playerId: 4 }, 3);
+assert.strictEqual(pick.ok, true);
+assert.deepStrictEqual(seatedPlayerIds(room), [1, 2, 3, 4]);
+
+const taken = chooseSeat(room, { playerId: 99 }, 0);
+assert.strictEqual(taken.ok, false);
 
 allocateSeatOrder(room, { fresh: true });
 assert.strictEqual(room.seatOrderLocked, true);
@@ -27,7 +39,9 @@ assert.strictEqual(room.seatOrder.length, 4);
 assert.ok(room.seatOrder.includes(4));
 
 const mixed = {
+  maxPlayers: 3,
   players: [{ playerId: 3 }, { playerId: 1 }, { playerId: 2 }],
+  seatSlots: [1, 2, 3],
   seatOrder: [1, 2, 3],
   currentPlayerIndex: 0,
   muushig: { dealerIndex: 0 },
