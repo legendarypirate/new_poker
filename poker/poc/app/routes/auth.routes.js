@@ -25,6 +25,7 @@ module.exports = app => {
     router.post("/updateForgotPass", auth.updateForgotPass);
     router.post("/social-login", auth.socialLogin);
     router.get("/me", auth.verifyToken, auth.getCurrentUser);
+    router.patch("/me", auth.verifyToken, auth.updateProfile);
 
   
     app.use("/api/auth", router);

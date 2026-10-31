@@ -5,4 +5,10 @@ function toPublicId(dbId) {
   return Number.isFinite(n) && n > 0 ? n + PUBLIC_ID_OFFSET : null;
 }
 
-module.exports = { PUBLIC_ID_OFFSET, toPublicId };
+function fromPublicId(publicId) {
+  const n = Number(publicId);
+  if (!Number.isFinite(n) || n <= PUBLIC_ID_OFFSET) return null;
+  return n - PUBLIC_ID_OFFSET;
+}
+
+module.exports = { PUBLIC_ID_OFFSET, toPublicId, fromPublicId };

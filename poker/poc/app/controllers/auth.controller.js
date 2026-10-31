@@ -23,6 +23,7 @@ function publicUser(user) {
     public_id: toPublicId(user.id),
     username: user.username,
     display_name: user.display_name || user.username,
+    avatar_url: user.avatar_url || null,
     role: user.role,
     email: user.email,
     phone: user.phone,
@@ -570,6 +571,50 @@ exports.socialLogin = async (req, res) => {
   }
 };
 
+exports.updateProfile = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "User not authenticated" });
+    }
+    const displayName = req.body.display_name ?? req.body.displayName;
+    const updates = {};
+    if (displayName != null) {
+      const trimmed = String(displayName).trim();
+      if (trimmed.length < 2 || trimmed.length > 24) {
+        return res.status(400).json({
+          success: false,
+          message: "Display name must be 2-24 characters",
+        });
+      }
+      updates.display_name = trimmed;
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: "Nothing to update" });
+    }
+    await User.update(updates, { where: { id: userId } });
+    const user = await User.findByPk(userId, {
+      attributes: ["id", "username", "email", "account_balance", "display_name", "avatar_url", "role"],
+    });
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        public_id: toPublicId(user.id),
+        username: user.username,
+        email: user.email,
+        account_balance: parseFloat(user.account_balance || 0),
+        display_name: user.display_name,
+        avatar_url: user.avatar_url,
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    console.error("Error updating profile:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 // Get current user info (requires authentication)
 exports.getCurrentUser = async (req, res) => {
   try {
@@ -596,6 +641,7 @@ exports.getCurrentUser = async (req, res) => {
       success: true,
       user: {
         id: user.id,
+        public_id: toPublicId(user.id),
         username: user.username,
         email: user.email,
         account_balance: parseFloat(user.account_balance || 0),

@@ -46,8 +46,10 @@ db.withdrawals = require("./withdrawal.model.js")(sequelize, Sequelize);
 db.player_states = require("./player_state.model.js")(sequelize, Sequelize);
 db.platform_charges = require("./platform_charge.model.js")(sequelize, Sequelize);
 db.direct_messages = require("./direct_message.model.js")(sequelize, Sequelize);
+db.friend_requests = require("./friend_request.model.js")(sequelize, Sequelize);
 
-
+db.friend_requests.belongsTo(db.users, { foreignKey: "from_user_id", as: "fromUser" });
+db.friend_requests.belongsTo(db.users, { foreignKey: "to_user_id", as: "toUser" });
 
 db.infos.belongsTo(db.Categories, { foreignKey: "cat_id" });
 db.Categories.hasMany(db.infos, { foreignKey: "cat_id" });

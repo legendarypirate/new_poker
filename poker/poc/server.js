@@ -1,3 +1,9 @@
+try {
+  require("dotenv").config();
+} catch (_) {
+  // dotenv optional; set env vars in process manager / host
+}
+
 const express = require("express");
 const WebSocket = require("ws");
 const db = require("./app/models");
@@ -37,6 +43,7 @@ require("./app/routes/withdrawal.routes")(app);
 require("./app/routes/admin.routes")(app);
 require("./app/routes/tournament.routes")(app);
 require("./app/routes/social.routes")(app);
+require("./app/routes/media.routes")(app);
 
 // Sync database
 db.sequelize
