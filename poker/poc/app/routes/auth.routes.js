@@ -1,5 +1,7 @@
 module.exports = app => {
     const auth = require("../controllers/auth.controller");
+    const media = require("../controllers/media.controller.js");
+    const { handleAvatarUpload } = require("../middleware/avatarUpload");
   
     var router = require("express").Router();
   
@@ -26,6 +28,7 @@ module.exports = app => {
     router.post("/social-login", auth.socialLogin);
     router.get("/me", auth.verifyToken, auth.getCurrentUser);
     router.patch("/me", auth.verifyToken, auth.updateProfile);
+    router.post("/me/avatar", handleAvatarUpload, auth.verifyToken, media.uploadAvatar);
 
   
     app.use("/api/auth", router);

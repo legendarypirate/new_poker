@@ -152,39 +152,64 @@ exports.mobile_login = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials!" });
     }
 
-    const token = jwt.sign({ id: user.id, phone: user.phone, role: user.role }, secretKey, { expiresIn: "30m" });
+    const token = signToken(user);
 
     res.json({
       success: true,
       token,
-      user: {
-        id: user.id,
-        phone: user.phone,
-        role: user.role,
-        account_balance: parseFloat(user.account_balance || 0)
-      }
+      user: publicUser(user),
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Internal server error" });
   }
 };
+function readAuthToken(req) {
+  const header =
+    req.headers["authorization"] ||
+    req.headers["Authorization"] ||
+    req.headers["x-access-token"];
+  if (header) {
+    const raw = String(header).trim();
+    if (raw.toLowerCase().startsWith("bearer ")) {
+      return raw.slice(7).trim();
+    }
+    return raw;
+  }
+  if (req.body?.token) {
+    return String(req.body.token).trim();
+  }
+  if (req.query?.token) {
+    return String(req.query.token).trim();
+  }
+  return null;
+}
+
+function attachUser(decoded) {
+  const id = decoded?.id ?? decoded?.userId;
+  return {
+    ...decoded,
+    id: typeof id === "string" ? Number(id) : id,
+  };
+}
+
 // Verify the JWT token
 exports.verifyToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"] || req.headers["Authorization"];
+  const token = readAuthToken(req);
 
-  if (!authHeader) {
-    return res.status(401).json({ message: "Token is missing!" });
+  if (!token) {
+    return res.status(401).json({ success: false, message: "Token is missing!" });
   }
-
-  // Extract token from "Bearer <token>" format or use as-is
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
 
   jwt.verify(token, secretKey, (err, decoded) => {
     if (err) {
-      return res.status(401).json({ message: "Token is invalid!" });
+      const message =
+        err.name === "TokenExpiredError"
+          ? "Token expired. Please sign in again."
+          : "Token is invalid!";
+      return res.status(401).json({ success: false, message });
     }
-    req.user = decoded;
+    req.user = attachUser(decoded);
     next();
   });
 };
