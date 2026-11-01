@@ -33,14 +33,19 @@ module.exports = app => {
   router.get("/users", verifyToken, checkAdmin, admin.getUsers);
   router.get("/users/:id", verifyToken, checkAdmin, admin.getUser);
   router.put("/users/:id/balance", verifyToken, checkAdmin, admin.updateUserBalance);
+  router.put("/users/:id/status", verifyToken, checkAdmin, admin.updateUserStatus);
 
   // Withdrawal routes
   router.get("/withdrawals", verifyToken, checkAdmin, admin.getWithdrawals);
   router.post("/withdrawals/:id/approve", verifyToken, checkAdmin, admin.approveWithdrawal);
   router.post("/withdrawals/:id/reject", verifyToken, checkAdmin, admin.rejectWithdrawal);
 
-  // Game routes
+  // Game + live room routes
+  router.get("/games", verifyToken, checkAdmin, admin.getGames);
   router.post("/games/:id/end", verifyToken, checkAdmin, admin.endGame);
+  router.get("/rooms/live", verifyToken, checkAdmin, admin.getLiveRooms);
+  router.post("/rooms/:id/close", verifyToken, checkAdmin, admin.closeRoom);
+  router.post("/rooms/:id/kick", verifyToken, checkAdmin, admin.kickPlayer);
 
   // Platform charges routes
   router.get("/platform-charges", verifyToken, checkAdmin, admin.getPlatformCharges);

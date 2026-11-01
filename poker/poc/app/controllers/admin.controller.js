@@ -6,13 +6,15 @@ const Game = db.games;
 const PlayerState = db.player_states;
 const PlatformCharge = db.platform_charges;
 const Op = db.Sequelize.Op;
+const gameState = require("../../websocket/gameState");
+const { broadcastToRoom } = require("../../websocket/gameHandler");
+const secretKey = process.env.JWT_SECRET || "your_secret_key";
 
 // Admin login
 exports.login = async (req, res) => {
   const { username, password } = req.body;
   const bcrypt = require("bcryptjs");
   const jwt = require("jsonwebtoken");
-  const secretKey = 'your_secret_key';
 
   if (!username || !password) {
     return res.status(400).json({ message: "Username and password are required!" });
@@ -61,13 +63,18 @@ exports.getDashboardStats = async (req, res) => {
     
     const activeGames = await Game.count({ where: { status: 1 } });
     const totalGames = await Game.count();
+    const playingUsers = await User.count({
+      where: { role: "user", current_game_id: { [Op.ne]: null } },
+    });
+    const liveRooms = gameState.listLiveRooms();
 
     res.json({
       success: true,
       data: {
         users: {
           total: totalUsers,
-          active: activeUsers
+          active: activeUsers,
+          playing: playingUsers,
         },
         withdrawals: {
           pending: pendingWithdrawals,
@@ -80,7 +87,11 @@ exports.getDashboardStats = async (req, res) => {
         games: {
           active: activeGames,
           total: totalGames
-        }
+        },
+        rooms: {
+          live: liveRooms.length,
+          playing: liveRooms.filter((r) => r.gameStarted && !r.gameFinished).length,
+        },
       }
     });
   } catch (error) {
@@ -262,7 +273,7 @@ exports.getUsers = async (req, res) => {
 
     const users = await User.findAll({
       where: condition,
-      attributes: ['id', 'username', 'phone', 'email', 'account_balance', 'role', 'is_active', 'createdAt'],
+      attributes: ['id', 'username', 'display_name', 'phone', 'email', 'account_balance', 'role', 'is_active', 'current_game_id', 'avatar_url', 'createdAt'],
       order: [['createdAt', 'DESC']],
       limit: 100
     });
@@ -285,7 +296,7 @@ exports.getUser = async (req, res) => {
   try {
     const id = req.params.id;
     const user = await User.findByPk(id, {
-      attributes: ['id', 'username', 'phone', 'email', 'account_balance', 'role', 'is_active', 'createdAt']
+      attributes: ['id', 'username', 'display_name', 'phone', 'email', 'account_balance', 'role', 'is_active', 'current_game_id', 'avatar_url', 'createdAt']
     });
 
     if (!user) {
@@ -489,6 +500,157 @@ exports.rejectWithdrawal = async (req, res) => {
       success: false,
       message: error.message || "Error rejecting withdrawal"
     });
+  }
+};
+
+exports.updateUserStatus = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { is_active } = req.body;
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    if (user.role === "admin") {
+      return res.status(400).json({ success: false, message: "Cannot change admin status here" });
+    }
+    await user.update({ is_active: String(is_active) === "1" || is_active === true ? "1" : "0" });
+    res.json({
+      success: true,
+      message: user.is_active === "1" ? "User activated" : "User deactivated",
+      data: {
+        id: user.id,
+        username: user.username,
+        is_active: user.is_active,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating user status:", error);
+    res.status(500).json({ success: false, message: error.message || "Error updating user status" });
+  }
+};
+
+exports.getGames = async (req, res) => {
+  try {
+    const { status, game_type, limit } = req.query;
+    const condition = {};
+    if (status !== undefined && status !== "") condition.status = parseInt(status, 10);
+    if (game_type) condition.game_type = game_type;
+
+    const games = await Game.findAll({
+      where: condition,
+      include: [{
+        model: User,
+        as: "winnerUser",
+        attributes: ["id", "username", "display_name"],
+        required: false,
+      }],
+      order: [["game_id", "DESC"]],
+      limit: Math.min(parseInt(limit, 10) || 200, 1000),
+    });
+
+    const data = games.map((game) => {
+      const json = game.toJSON();
+      return {
+        ...json,
+        winner_username: json.winnerUser?.username || json.winnerUser?.display_name || null,
+        player_ids: Array.isArray(json.players) ? json.players : [],
+      };
+    });
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error("Error fetching games:", error);
+    res.status(500).json({ success: false, message: error.message || "Error fetching games" });
+  }
+};
+
+exports.getLiveRooms = async (req, res) => {
+  try {
+    res.json({ success: true, data: gameState.listLiveRooms() });
+  } catch (error) {
+    console.error("Error fetching live rooms:", error);
+    res.status(500).json({ success: false, message: error.message || "Error fetching live rooms" });
+  }
+};
+
+async function finishGameRecord(gameId) {
+  if (!gameId) return;
+  const game = await Game.findByPk(gameId);
+  if (game && game.status !== 2) {
+    await game.update({ status: 2, end_time: new Date() });
+  }
+  await PlayerState.destroy({ where: { game_id: gameId } });
+  await User.update({ current_game_id: null }, { where: { current_game_id: gameId } });
+}
+
+exports.closeRoom = async (req, res) => {
+  try {
+    const roomId = decodeURIComponent(req.params.id);
+    const room = gameState.getRoom(roomId);
+    if (!room) {
+      return res.status(404).json({ success: false, message: "Live room not found" });
+    }
+
+    broadcastToRoom(roomId, {
+      type: "adminForceEnd",
+      message: "Admin closed this room",
+    }, gameState.rooms);
+
+    await finishGameRecord(room.gameId);
+    delete gameState.rooms[roomId];
+    gameState.roomReadyStatus.delete(roomId);
+
+    console.log(`✅ Admin closed room ${roomId}`);
+    res.json({ success: true, message: "Room closed", data: { roomId } });
+  } catch (error) {
+    console.error("Error closing room:", error);
+    res.status(500).json({ success: false, message: error.message || "Error closing room" });
+  }
+};
+
+exports.kickPlayer = async (req, res) => {
+  try {
+    const roomId = decodeURIComponent(req.params.id);
+    const userId = Number(req.body.userId || req.body.user_id);
+    const room = gameState.getRoom(roomId);
+    if (!room) {
+      return res.status(404).json({ success: false, message: "Live room not found" });
+    }
+    const player = (room.players || []).find(
+      (p) => Number(p.userId || p.playerId) === userId
+    );
+    if (!player) {
+      return res.status(404).json({ success: false, message: "Player not in this room" });
+    }
+
+    if (player.ws && player.ws.readyState === 1) {
+      player.ws.send(JSON.stringify({
+        type: "kicked",
+        message: "You were removed from the room by an admin",
+      }));
+    }
+
+    room.players = room.players.filter((p) => p !== player);
+    if (room.gameId) {
+      await PlayerState.destroy({ where: { game_id: room.gameId, user_id: userId } });
+    }
+    await User.update({ current_game_id: null }, { where: { id: userId } });
+
+    broadcastToRoom(roomId, {
+      type: "playerKicked",
+      userId,
+      username: player.username,
+    }, gameState.rooms);
+
+    res.json({
+      success: true,
+      message: `${player.username || userId} was kicked`,
+      data: { roomId, userId },
+    });
+  } catch (error) {
+    console.error("Error kicking player:", error);
+    res.status(500).json({ success: false, message: error.message || "Error kicking player" });
   }
 };
 

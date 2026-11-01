@@ -45,11 +45,13 @@ require("./app/routes/tournament.routes")(app);
 require("./app/routes/social.routes")(app);
 require("./app/routes/media.routes")(app);
 
-// Sync database
+// Sync database and ensure the demo admin exists
+const { seedAdmin } = require("./scripts/seedAdmin");
 db.sequelize
   .sync()
-  .then(() => {
+  .then(async () => {
     console.log("Synced db.");
+    await seedAdmin();
   })
   .catch((err) => {
     console.log("Failed to sync db: " + err.message);
@@ -72,9 +74,8 @@ wss.on("listening", () => {
   console.log("✅ WebSocket server is listening on port 3001");
 });
 
-// Game state
-const rooms = {};
-const roomReadyStatus = new Map();
+// Game state (shared so admin APIs can inspect live rooms)
+const { rooms, roomReadyStatus } = require("./websocket/gameState");
 
 // Import handlers
 const { handleAdminMessage, handleUserAdminMessage, removeAdminConnection, removeAdminChatUser, getUserChat } = require('./websocket/adminHandler');
