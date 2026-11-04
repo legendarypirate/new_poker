@@ -19,6 +19,22 @@ function publicUser(user, me, lastMessage) {
   };
 }
 
+function notifyFriendRequestAccepted(requesterId, accepterUser) {
+  if (!requesterId || !accepterUser) return;
+  sendToUser(requesterId, {
+    type: "friendRequestAccepted",
+    user: publicUser(accepterUser, requesterId, null),
+  });
+}
+
+function notifyFriendRequestReceived(recipientId, senderUser) {
+  if (!recipientId || !senderUser) return;
+  sendToUser(recipientId, {
+    type: "friendRequest",
+    user: publicUser(senderUser, recipientId, null),
+  });
+}
+
 async function acceptedFriendIds(me) {
   const rows = await FriendRequest.findAll({
     where: {
@@ -248,6 +264,8 @@ exports.sendFriendRequest = async (req, res) => {
     if (reverse) {
       reverse.status = "accepted";
       await reverse.save();
+      const meUser = await User.findByPk(me);
+      if (meUser) notifyFriendRequestAccepted(toUserId, meUser);
       return res.json({ success: true, accepted: true });
     }
     const existing = await FriendRequest.findOne({
@@ -269,6 +287,8 @@ exports.sendFriendRequest = async (req, res) => {
       to_user_id: toUserId,
       status: "pending",
     });
+    const meUser = await User.findByPk(me);
+    if (meUser) notifyFriendRequestReceived(toUserId, meUser);
     res.json({ success: true, pending: true });
   } catch (err) {
     res.status(500).json({
@@ -293,6 +313,8 @@ exports.acceptFriendRequest = async (req, res) => {
     }
     row.status = "accepted";
     await row.save();
+    const accepter = await User.findByPk(me);
+    if (accepter) notifyFriendRequestAccepted(fromUserId, accepter);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({
