@@ -82,10 +82,26 @@ function parseRoom(body) {
 exports.contacts = async (req, res) => {
   const me = req.user.id;
   try {
+    const friendIds = await acceptedFriendIds(me);
+    const history = await DirectMessage.findAll({
+      where: {
+        [Op.or]: [{ from_user_id: me }, { to_user_id: me }],
+      },
+      attributes: ["from_user_id", "to_user_id"],
+    });
+    const peerIds = new Set(friendIds);
+    for (const message of history) {
+      peerIds.add(
+        message.from_user_id === me ? message.to_user_id : message.from_user_id,
+      );
+    }
+    peerIds.delete(me);
+    if (peerIds.size === 0) {
+      return res.json({ success: true, data: [] });
+    }
     const users = (await User.findAll({
-      where: { id: { [Op.ne]: me } },
+      where: { id: { [Op.in]: [...peerIds] } },
       attributes: ["id", "username", "display_name", "avatar_url", "current_game_id", "role"],
-      limit: 300,
     })).filter((user) => user.role !== "admin");
 
     const data = await usersWithLastMessage(me, users);
