@@ -335,7 +335,7 @@ assert.strictEqual(logic.matchChampion(seriesRoom).playerId, 1);
 const booltRoom = {
   players: [{ playerId: 1 }, { playerId: 2 }, { playerId: 3 }],
 };
-logic.applyTableSettings(booltRoom, { boolt: true, gerPrice: 1000 });
+logic.applyTableSettings(booltRoom, { rounds: 5, gerPrice: 1000 });
 assert.strictEqual(booltRoom.muushigMatch.primaryRounds, 5);
 assert.strictEqual(logic.currentGerPrice(booltRoom), 1000);
 for (let i = 0; i < 4; i++) {
@@ -343,7 +343,16 @@ for (let i = 0; i < 4; i++) {
   assert.strictEqual(step.done, false);
   assert.strictEqual(step.next, 'primary');
 }
-const intoBoolt = logic.afterMatchRound(booltRoom, 1);
+const voteStep = logic.afterMatchRound(booltRoom, 1);
+assert.strictEqual(voteStep.done, false);
+assert.strictEqual(voteStep.next, 'booltVote');
+assert.strictEqual(voteStep.needsBooltVote, true);
+assert.strictEqual(booltRoom.muushigMatch.phase, 'booltVote');
+logic.recordBooltVote(booltRoom, 1, true);
+logic.recordBooltVote(booltRoom, 2, true);
+logic.recordBooltVote(booltRoom, 3, true);
+assert.strictEqual(logic.allBooltVotesCast(booltRoom), true);
+const intoBoolt = logic.resolveBooltVote(booltRoom);
 assert.strictEqual(intoBoolt.done, false);
 assert.strictEqual(intoBoolt.next, 'boolt');
 assert.strictEqual(intoBoolt.booltRounds, 2);

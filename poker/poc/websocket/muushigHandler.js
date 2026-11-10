@@ -133,6 +133,14 @@ function completeMatchRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, wi
     return true;
   }
 
+  if (result.needsBooltVote) {
+    broadcastToRoom(roomId, {
+      type: 'booltVotePrompt',
+      match: muushig.matchStatus(room),
+    }, rooms);
+    return true;
+  }
+
   setTimeout(() => {
     if (!rooms[roomId] || rooms[roomId].gameFinished) return;
     muushig.resetMuushigPoints(room);
@@ -144,6 +152,55 @@ function completeMatchRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, wi
     beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn);
   }, 2400);
   return true;
+}
+
+function handleBooltVote(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, accept) {
+  const room = rooms[roomId];
+  if (!room || room.gameFinished) {
+    return { ok: false, error: 'Game not active' };
+  }
+  const recorded = muushig.recordBooltVote(room, player.playerId, accept === true);
+  if (!recorded.ok) return recorded;
+
+  const match = muushig.matchStatus(room);
+  broadcastToRoom(roomId, {
+    type: 'booltVoteUpdate',
+    match,
+    playerId: player.playerId,
+    accept: accept === true,
+  }, rooms);
+
+  if (!muushig.allBooltVotesCast(room)) {
+    return { ok: true };
+  }
+
+  const result = muushig.resolveBooltVote(room);
+  const resolvedMatch = muushig.matchStatus(room);
+  broadcastToRoom(roomId, {
+    type: 'booltVoteResolved',
+    match: resolvedMatch,
+    accepted: result.accepted === true,
+    matchEnded: result.done,
+    next: result.next,
+  }, rooms);
+
+  if (result.done) {
+    const champion = muushig.matchChampion(room) || player;
+    finishByWinner(roomId, rooms, broadcastToRoom, champion, { match: resolvedMatch });
+    return { ok: true };
+  }
+
+  setTimeout(() => {
+    if (!rooms[roomId] || rooms[roomId].gameFinished) return;
+    muushig.resetMuushigPoints(room);
+    broadcastToRoom(roomId, {
+      type: 'newMatchRound',
+      match: muushig.matchStatus(room),
+      next: result.next,
+    }, rooms);
+    beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+  }, 2400);
+  return { ok: true };
 }
 
 function beginRound(roomId, rooms, broadcastToRoom, startTurnTimerFn, { restarted = false } = {}) {
@@ -551,6 +608,7 @@ module.exports = {
   handleMuushigMove,
   handleMuushigPass,
   handleMuushigRestart,
+  handleBooltVote,
   autoMuushigTimeout,
   sendHands,
 };

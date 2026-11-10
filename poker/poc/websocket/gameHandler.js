@@ -30,6 +30,7 @@ const {
   handleMuushigMove,
   handleMuushigPass,
   handleMuushigRestart,
+  handleBooltVote,
   autoMuushigTimeout,
 } = require('./muushigHandler');
 const muushigLogic = require('../utils/muushigLogic');
@@ -554,7 +555,7 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
     return true;
   }
 
-  if (isMuushigRoom(room) && (msg.type === 'move' || msg.type === 'pass' || msg.type === 'restart')) {
+  if (isMuushigRoom(room) && (msg.type === 'move' || msg.type === 'pass' || msg.type === 'restart' || msg.type === 'booltVote')) {
     const { startTurnTimer } = require('./timerUtils');
     const boundStartTurnTimer = (id) => {
       startTurnTimer(id, rooms, broadcastToRoom, (id) => autoPass(id, rooms, broadcastToRoom, boundStartTurnTimer));
@@ -563,7 +564,9 @@ function handleGameMessage(msg, ws, player, roomId, rooms, roomReadyStatus, broa
       ? handleMuushigMove(roomId, rooms, broadcastToRoom, boundStartTurnTimer, player, msg.cards, msg.action)
       : msg.type === 'pass'
         ? handleMuushigPass(roomId, rooms, broadcastToRoom, boundStartTurnTimer, player)
-        : handleMuushigRestart(roomId, rooms, broadcastToRoom, boundStartTurnTimer);
+        : msg.type === 'booltVote'
+          ? handleBooltVote(roomId, rooms, broadcastToRoom, boundStartTurnTimer, player, msg.accept)
+          : handleMuushigRestart(roomId, rooms, broadcastToRoom, boundStartTurnTimer);
     if (!result.ok) {
       ws.send(JSON.stringify({ type: 'error', message: result.error || 'Invalid action' }));
     }
@@ -1165,7 +1168,7 @@ async function handleJoinRoom(msg, ws, rooms, roomReadyStatus, broadcastToRoom, 
     room.gameType = gameType;
   }
   if (isMuushig && !room.gameStarted) {
-    const hasSettings = msg.gerPrice != null || msg.boolt != null || msg.booltEnabled != null || msg.rounds != null;
+    const hasSettings = msg.gerPrice != null || msg.rounds != null;
     if (hasSettings || !room.muushigMatch) {
       muushigLogic.applyTableSettings(room, msg);
     }

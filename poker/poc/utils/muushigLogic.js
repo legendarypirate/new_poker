@@ -132,20 +132,20 @@ function clampMatchRounds(value) {
 }
 
 function applyTableSettings(room, raw = {}) {
-  const booltEnabled = raw.boolt === true || raw.booltEnabled === true;
   const gerPrice = clampGerPrice(raw.gerPrice ?? raw.ger_price ?? room.muushigMatch?.gerPrice);
-  const primaryRounds = booltEnabled
-    ? BOOLT_PRIMARY_ROUNDS
-    : clampMatchRounds(raw.rounds ?? raw.maxRounds ?? room.muushigMatch?.primaryRounds);
+  const primaryRounds = clampMatchRounds(
+    raw.rounds ?? raw.maxRounds ?? room.muushigMatch?.primaryRounds,
+  );
   const previous = room.muushigMatch;
   room.muushigMatch = {
-    booltEnabled,
+    booltEnabled: false,
     gerPrice,
     primaryRounds,
     phase: previous?.phase || 'primary',
     primaryPlayed: previous?.primaryPlayed || 0,
     booltTotal: previous?.booltTotal || 0,
     booltPlayed: previous?.booltPlayed || 0,
+    booltVotes: previous?.booltVotes ? { ...previous.booltVotes } : {},
     roundWins: previous?.roundWins ? { ...previous.roundWins } : {},
     gers: previous?.gers ? { ...previous.gers } : {},
     gerValue: previous?.gerValue ? { ...previous.gerValue } : {},
@@ -160,6 +160,7 @@ function resetMatchProgress(room) {
   match.primaryPlayed = 0;
   match.booltTotal = 0;
   match.booltPlayed = 0;
+  match.booltVotes = {};
   match.roundWins = {};
   match.gers = {};
   match.gerValue = {};
@@ -177,6 +178,7 @@ function ensureMatch(room) {
       primaryPlayed: 0,
       booltTotal: 0,
       booltPlayed: 0,
+      booltVotes: {},
       roundWins: {},
       gers: {},
       gerValue: {},
@@ -219,27 +221,94 @@ function winlessCount(room) {
   return room.players.filter((player) => (match.roundWins[player.playerId] || 0) === 0).length;
 }
 
+function initBooltVotes(room) {
+  const match = ensureMatch(room);
+  match.booltVotes = {};
+  for (const player of room.players || []) {
+    match.booltVotes[player.playerId] = null;
+  }
+}
+
+function recordBooltVote(room, playerId, accept) {
+  const match = ensureMatch(room);
+  if (match.phase !== 'booltVote') {
+    return { ok: false, error: 'Boolt vote is not open' };
+  }
+  if (!match.booltVotes) initBooltVotes(room);
+  const pid = playerId;
+  if (!(pid in match.booltVotes)) {
+    match.booltVotes[pid] = null;
+  }
+  match.booltVotes[pid] = accept === true;
+  return { ok: true };
+}
+
+function allBooltVotesCast(room) {
+  const match = ensureMatch(room);
+  if (!match.booltVotes) return false;
+  return (room.players || []).every((player) => {
+    const vote = match.booltVotes[player.playerId];
+    return vote === true || vote === false;
+  });
+}
+
+function unanimousBooltYes(room) {
+  return (room.players || []).every(
+    (player) => matchBooltVote(room, player.playerId) === true,
+  );
+}
+
+function matchBooltVote(room, playerId) {
+  const match = ensureMatch(room);
+  if (!match.booltVotes) return null;
+  return match.booltVotes[playerId];
+}
+
+function resolveBooltVote(room) {
+  const match = ensureMatch(room);
+  match.booltVotes = match.booltVotes || {};
+  if (!unanimousBooltYes(room)) {
+    return { done: true, accepted: false };
+  }
+  match.booltEnabled = true;
+  match.booltTotal = winlessCount(room);
+  if (match.booltTotal > 0) {
+    match.phase = 'boolt';
+    return {
+      done: false,
+      next: 'boolt',
+      booltRounds: match.booltTotal,
+      accepted: true,
+    };
+  }
+  return { done: true, accepted: true };
+}
+
 function afterMatchRound(room, winnerId) {
   const match = ensureMatch(room);
   match.roundWins[winnerId] = (match.roundWins[winnerId] || 0) + 1;
   if (match.phase === 'boolt') match.booltPlayed += 1;
-  else match.primaryPlayed += 1;
+  else if (match.phase === 'primary') match.primaryPlayed += 1;
 
   if (match.phase === 'primary') {
     if (match.primaryPlayed < match.primaryRounds) {
       return { done: false, next: 'primary' };
     }
-    if (match.booltEnabled) {
-      match.booltTotal = winlessCount(room);
-      if (match.booltTotal > 0) {
-        match.phase = 'boolt';
-        return { done: false, next: 'boolt', booltRounds: match.booltTotal };
-      }
+    if (
+      match.primaryRounds === BOOLT_PRIMARY_ROUNDS &&
+      winlessCount(room) > 0
+    ) {
+      match.phase = 'booltVote';
+      initBooltVotes(room);
+      return { done: false, next: 'booltVote', needsBooltVote: true };
     }
     return { done: true };
   }
-  if (match.booltPlayed < match.booltTotal) {
-    return { done: false, next: 'boolt' };
+  if (match.phase === 'boolt') {
+    if (match.booltPlayed < match.booltTotal) {
+      return { done: false, next: 'boolt' };
+    }
+    return { done: true };
   }
   return { done: true };
 }
@@ -264,9 +333,12 @@ function matchChampion(room) {
 function matchStatus(room) {
   const match = ensureMatch(room);
   const inBoolt = match.phase === 'boolt';
+  const inBooltVote = match.phase === 'booltVote';
+  const votes = match.booltVotes || {};
   return {
     booltEnabled: !!match.booltEnabled,
     booltPhase: inBoolt,
+    booltVotePhase: inBooltVote,
     phase: match.phase,
     gerPrice: match.gerPrice,
     currentGerPrice: currentGerPrice(room),
@@ -274,6 +346,7 @@ function matchStatus(room) {
     primaryPlayed: match.primaryPlayed,
     booltTotal: match.booltTotal,
     booltPlayed: match.booltPlayed,
+    booltVotes: { ...votes },
     roundWins: { ...match.roundWins },
     gers: { ...match.gers },
     gerValue: { ...match.gerValue },
@@ -735,6 +808,9 @@ module.exports = {
   applyGerPayouts: creditGer,
   creditGer,
   afterMatchRound,
+  recordBooltVote,
+  allBooltVotesCast,
+  resolveBooltVote,
   matchChampion,
   matchStatus,
   dealMuushigRound,
