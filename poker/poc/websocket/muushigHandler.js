@@ -380,7 +380,12 @@ function playCard(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, card
   }, rooms);
 
   if (muushig.trickIsResolved(room) || state.trick.length >= muushig.enteredPlayers(room).length) {
-    finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+    const TRICK_TO_TABLE_MS = 620;
+    setTimeout(() => {
+      const live = rooms[roomId];
+      if (!live || live.gameFinished) return;
+      finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+    }, TRICK_TO_TABLE_MS);
     return { ok: true, trickComplete: true };
   }
 
@@ -420,7 +425,12 @@ function handleOnjih(roomId, rooms, broadcastToRoom, startTurnTimerFn, player) {
       startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
       return { ok: true, passed: true };
     }
-    finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+    const TRICK_TO_TABLE_MS = 620;
+    setTimeout(() => {
+      const live = rooms[roomId];
+      if (!live || live.gameFinished) return;
+      finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+    }, TRICK_TO_TABLE_MS);
     return { ok: true, passed: true, trickComplete: true };
   }
 
