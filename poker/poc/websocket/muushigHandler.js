@@ -359,7 +359,8 @@ function playCard(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, card
   if (!muushig.cardsOwned(player.hand, [card])) {
     return { ok: false, error: 'Cards not in hand' };
   }
-  if (!muushig.isLegalPlay(player.hand, card, state.trick, state.trumpSuit)) {
+  const playOpts = { isLastPlayer: muushig.isLastPlayerInTrick(room) };
+  if (!muushig.isLegalPlay(player.hand, card, state.trick, state.trumpSuit, playOpts)) {
     return { ok: false, error: 'Must follow suit or play khozer' };
   }
 
@@ -597,7 +598,13 @@ function autoMuushigTimeout(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
     return;
   }
 
-  const card = muushig.lowestLegalCard(player.hand, room.muushig.trick, room.muushig.trumpSuit);
+  const autoOpts = { isLastPlayer: muushig.isLastPlayerInTrick(room) };
+  const card = muushig.lowestLegalCard(
+    player.hand,
+    room.muushig.trick,
+    room.muushig.trumpSuit,
+    autoOpts,
+  );
   if (!card) return;
   playCard(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, card);
 }

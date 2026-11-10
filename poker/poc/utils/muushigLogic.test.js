@@ -26,12 +26,19 @@ function roomWithHands(hands, trumpSuit = '♠') {
   };
 }
 
-const follow = logic.legalPlayCards(
+const followWithTrump = logic.legalPlayCards(
   [{ rank: '9', suit: '♥' }, { rank: 'A', suit: '♠' }, { rank: '8', suit: '♦' }],
   [{ playerId: 1, card: { rank: '10', suit: '♥' } }],
   '♠'
 );
-assert.deepStrictEqual(follow.map((c) => c.rank + c.suit), ['9♥']);
+assert.deepStrictEqual(followWithTrump.map((c) => c.rank + c.suit), ['A♠']);
+
+const followSuitOnly = logic.legalPlayCards(
+  [{ rank: '9', suit: '♥' }, { rank: '8', suit: '♦' }],
+  [{ playerId: 1, card: { rank: '10', suit: '♥' } }],
+  '♠'
+);
+assert.deepStrictEqual(followSuitOnly.map((c) => c.rank + c.suit), ['9♥']);
 
 const mustTrump = logic.legalPlayCards(
   [{ rank: '9', suit: '♣' }, { rank: 'A', suit: '♠' }],
@@ -227,12 +234,15 @@ const mustEatWithTrump = logic.legalPlayCards(
 );
 assert.deepStrictEqual(mustEatWithTrump.map((c) => c.rank + c.suit), ['7♣']);
 
-const mustFollowDiamond = logic.legalPlayCards(
+const mustTrumpOverDiamond = logic.legalPlayCards(
   [{ rank: 'K', suit: '♦' }, { rank: '9', suit: '♠' }, { rank: '10', suit: '♠' }],
   [{ playerId: 1, card: { rank: 'A', suit: '♦' } }],
   '♠'
 );
-assert.deepStrictEqual(mustFollowDiamond.map((c) => c.rank + c.suit), ['K♦']);
+assert.deepStrictEqual(
+  mustTrumpOverDiamond.map((c) => c.rank + c.suit).sort(),
+  ['10♠', '9♠']
+);
 assert.strictEqual(
   logic.isLegalPlay(
     [{ rank: 'K', suit: '♦' }, { rank: '9', suit: '♠' }],
@@ -240,8 +250,25 @@ assert.strictEqual(
     [{ playerId: 1, card: { rank: 'A', suit: '♦' } }],
     '♠'
   ),
+  true
+);
+assert.strictEqual(
+  logic.isLegalPlay(
+    [{ rank: 'K', suit: '♦' }, { rank: '9', suit: '♠' }],
+    { rank: 'K', suit: '♦' },
+    [{ playerId: 1, card: { rank: 'A', suit: '♦' } }],
+    '♠'
+  ),
   false
 );
+
+const lastPlayerDump = logic.legalPlayCards(
+  [{ rank: '9', suit: '♦' }, { rank: '8', suit: '♥' }],
+  [{ playerId: 1, card: { rank: '10', suit: '♥' } }],
+  '♣',
+  { isLastPlayer: true }
+);
+assert.deepStrictEqual(lastPlayerDump.map((c) => c.rank + c.suit).sort(), ['8♥', '9♦']);
 
 const onjihRoom = roomWithHands([
   [['A', '♥']],
