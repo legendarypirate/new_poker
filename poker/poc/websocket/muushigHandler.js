@@ -90,6 +90,7 @@ function finishByWinner(roomId, rooms, broadcastToRoom, winnerPlayer, extra = {}
   broadcastToRoom(roomId, {
     type: 'gameOver',
     winner: winnerPlayer.playerId,
+    matchEnded: true,
     points: room.playerPoints || {},
     scoreboard: scoreboardOf(room, winnerPlayer),
     gameType: 'muushig',
