@@ -26,12 +26,12 @@ function roomWithHands(hands, trumpSuit = '♠') {
   };
 }
 
-const followWithTrump = logic.legalPlayCards(
+const followLeadEvenWithTrump = logic.legalPlayCards(
   [{ rank: '9', suit: '♥' }, { rank: 'A', suit: '♠' }, { rank: '8', suit: '♦' }],
   [{ playerId: 1, card: { rank: '10', suit: '♥' } }],
   '♠'
 );
-assert.deepStrictEqual(followWithTrump.map((c) => c.rank + c.suit), ['A♠']);
+assert.deepStrictEqual(followLeadEvenWithTrump.map((c) => c.rank + c.suit), ['9♥']);
 
 const followSuitOnly = logic.legalPlayCards(
   [{ rank: '9', suit: '♥' }, { rank: '8', suit: '♦' }],
@@ -234,14 +234,14 @@ const mustEatWithTrump = logic.legalPlayCards(
 );
 assert.deepStrictEqual(mustEatWithTrump.map((c) => c.rank + c.suit), ['7♣']);
 
-const mustTrumpOverDiamond = logic.legalPlayCards(
+const mustFollowDiamondEvenWithTrump = logic.legalPlayCards(
   [{ rank: 'K', suit: '♦' }, { rank: '9', suit: '♠' }, { rank: '10', suit: '♠' }],
   [{ playerId: 1, card: { rank: 'A', suit: '♦' } }],
   '♠'
 );
 assert.deepStrictEqual(
-  mustTrumpOverDiamond.map((c) => c.rank + c.suit).sort(),
-  ['10♠', '9♠']
+  mustFollowDiamondEvenWithTrump.map((c) => c.rank + c.suit),
+  ['K♦']
 );
 assert.strictEqual(
   logic.isLegalPlay(
@@ -250,7 +250,7 @@ assert.strictEqual(
     [{ playerId: 1, card: { rank: 'A', suit: '♦' } }],
     '♠'
   ),
-  true
+  false
 );
 assert.strictEqual(
   logic.isLegalPlay(
@@ -259,8 +259,32 @@ assert.strictEqual(
     [{ playerId: 1, card: { rank: 'A', suit: '♦' } }],
     '♠'
   ),
-  false
+  true
 );
+
+const diamondTrumpMustFollowDiamond = logic.legalPlayCards(
+  [{ rank: '9', suit: '♦' }, { rank: 'A', suit: '♥' }, { rank: 'K', suit: '♠' }],
+  [{ playerId: 1, card: { rank: 'K', suit: '♦' } }],
+  '♦'
+);
+assert.deepStrictEqual(
+  diamondTrumpMustFollowDiamond.map((c) => c.rank + c.suit),
+  ['9♦']
+);
+
+const mustBeatLedDiamondIfAble = logic.legalPlayCards(
+  [{ rank: '9', suit: '♦' }, { rank: 'A', suit: '♦' }],
+  [{ playerId: 1, card: { rank: 'K', suit: '♦' } }],
+  '♦'
+);
+assert.deepStrictEqual(mustBeatLedDiamondIfAble.map((c) => c.rank + c.suit), ['A♦']);
+
+const followClubsEvenWithTrump = logic.legalPlayCards(
+  [{ rank: 'Q', suit: '♣' }, { rank: '7', suit: '♦' }],
+  [{ playerId: 1, card: { rank: '10', suit: '♣' } }],
+  '♦'
+);
+assert.deepStrictEqual(followClubsEvenWithTrump.map((c) => c.rank + c.suit), ['Q♣']);
 
 const lastPlayerDump = logic.legalPlayCards(
   [{ rank: '9', suit: '♦' }, { rank: '8', suit: '♥' }],

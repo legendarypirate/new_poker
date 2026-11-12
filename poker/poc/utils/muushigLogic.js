@@ -666,16 +666,14 @@ function legalPlayCards(hand, trick, trumpSuit, options = {}) {
     return held.slice();
   }
 
-  const trumps = held.filter((card) => card.suit === trump);
-  if (trumps.length) {
-    const tableBest = winningCardOnTable(trick, trumpSuit);
-    const beating = trumps.filter((card) => cardBeats(card, tableBest, trumpSuit));
-    return beating.length ? beating : trumps;
-  }
-
   const leadSuit = playCardOf(trick[0]).suit;
   const sameSuit = held.filter((card) => card.suit === leadSuit);
   if (sameSuit.length) {
+    if (leadSuit === trump) {
+      const tableBest = winningCardOnTable(trick, trumpSuit);
+      const beating = sameSuit.filter((card) => cardBeats(card, tableBest, trumpSuit));
+      return beating.length ? beating : sameSuit;
+    }
     const highestLead = Math.max(
       ...trick
         .map(playCardOf)
@@ -684,6 +682,13 @@ function legalPlayCards(hand, trick, trumpSuit, options = {}) {
     );
     const higher = sameSuit.filter((card) => rankValue(card.rank) > highestLead);
     return higher.length ? higher : sameSuit;
+  }
+
+  const trumps = held.filter((card) => card.suit === trump);
+  if (trumps.length) {
+    const tableBest = winningCardOnTable(trick, trumpSuit);
+    const beating = trumps.filter((card) => cardBeats(card, tableBest, trumpSuit));
+    return beating.length ? beating : trumps;
   }
   return held.slice();
 }
