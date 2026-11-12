@@ -348,7 +348,7 @@ function finishTrickThenContinue(roomId, rooms, broadcastToRoom, startTurnTimerF
   setTimeout(() => {
     if (!rooms[roomId] || rooms[roomId].gameFinished) return;
     startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
-  }, 800);
+  }, 1100);
 }
 
 function playCard(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, card) {
