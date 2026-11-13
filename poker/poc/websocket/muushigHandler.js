@@ -448,6 +448,8 @@ function handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, 
   if (navshih) {
     const result = muushig.navshihKhozer(room, player, cards);
     if (!result.ok) return result;
+  } else if (muushig.mustNavshihKhozer(room, player.playerId)) {
+    return { ok: false, error: 'Must navshih trump Ace' };
   }
   muushig.finishKhozerPhase(room);
   sendHands(room);
@@ -503,7 +505,11 @@ function handleMuushigMove(roomId, rooms, broadcastToRoom, startTurnTimerFn, pla
       return handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, true, cards);
     }
     if (action === 'keepKhozer' || action === 'enter') {
-      return handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, false);
+      const kept = handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, false);
+      if (!kept.ok) {
+        startTurnClock(roomId, rooms, broadcastToRoom, startTurnTimerFn);
+      }
+      return kept;
     }
     return { ok: false, error: 'Keep or navshih khozer' };
   }
@@ -594,6 +600,13 @@ function autoMuushigTimeout(roomId, rooms, broadcastToRoom, startTurnTimerFn) {
   clearTurnTimer(roomId, rooms);
 
   if (room.muushig.phase === 'khozer') {
+    if (muushig.mustNavshihKhozer(room, player.playerId)) {
+      const discard = muushig.lowestKhozerDiscard(player.hand);
+      if (discard) {
+        handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, true, [discard]);
+        return;
+      }
+    }
     handleKhozerDecision(roomId, rooms, broadcastToRoom, startTurnTimerFn, player, false);
     return;
   }

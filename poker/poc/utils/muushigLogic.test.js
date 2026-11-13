@@ -413,6 +413,60 @@ assert.strictEqual(booltOne.done, false);
 const booltTwo = logic.afterMatchRound(booltRoom, 3);
 assert.strictEqual(booltTwo.done, true);
 
+const aceDealerRoom = roomWithHands([
+  [['7', '♥'], ['8', '♥'], ['9', '♥'], ['10', '♥'], ['J', '♥']],
+  [['7', '♠'], ['8', '♠'], ['9', '♠'], ['10', '♠'], ['J', '♠']],
+  [['7', '♦'], ['8', '♦'], ['9', '♦'], ['10', '♦'], ['J', '♦']],
+  [['7', '♣'], ['8', '♣'], ['9', '♣'], ['10', '♣'], ['J', '♣']],
+], '♥');
+aceDealerRoom.muushig.trump = { rank: 'A', suit: '♥' };
+aceDealerRoom.muushig.phase = 'enter';
+aceDealerRoom.muushig.entered = {};
+aceDealerRoom.muushig.satOut = {};
+assert.strictEqual(logic.isFaceUpTrumpAce(aceDealerRoom.muushig), true);
+assert.strictEqual(logic.sitOutBlockReason(aceDealerRoom, 1), 'trumpAce');
+assert.strictEqual(logic.canSitOut(aceDealerRoom, 1), false);
+assert.strictEqual(logic.canSitOut(aceDealerRoom, 2), true);
+const aceForced = logic.decideEnter(aceDealerRoom, aceDealerRoom.players[0], false);
+assert.strictEqual(aceForced.entered, true);
+assert.strictEqual(aceForced.forced, true);
+assert.strictEqual(aceForced.reason, 'trumpAce');
+assert.strictEqual(aceDealerRoom.muushig.entered[1], true);
+
+const nonAceDealerRoom = roomWithHands([
+  [['7', '♥']],
+  [['8', '♥']],
+  [['9', '♥']],
+  [['10', '♥']],
+]);
+nonAceDealerRoom.muushig.phase = 'enter';
+nonAceDealerRoom.muushig.entered = {};
+nonAceDealerRoom.muushig.satOut = {};
+assert.strictEqual(logic.sitOutBlockReason(nonAceDealerRoom, 1), null);
+assert.strictEqual(logic.canSitOut(nonAceDealerRoom, 1), true);
+
+aceDealerRoom.muushig.phase = 'khozer';
+aceDealerRoom.muushig.exchanged = { 1: true, 2: true, 3: true, 4: true };
+assert.strictEqual(logic.mustNavshihKhozer(aceDealerRoom, 1), true);
+assert.strictEqual(logic.canKeepKhozer(aceDealerRoom, 1), false);
+assert.strictEqual(logic.mustNavshihKhozer(aceDealerRoom, 2), false);
+const aceDiscard = logic.lowestKhozerDiscard(aceDealerRoom.players[0].hand);
+assert.strictEqual(aceDiscard.rank, '7');
+const aceTaken = logic.navshihKhozer(aceDealerRoom, aceDealerRoom.players[0], [aceDiscard]);
+assert.strictEqual(aceTaken.ok, true);
+assert.ok(aceDealerRoom.players[0].hand.some((c) => c.rank === 'A' && c.suit === '♥'));
+assert.strictEqual(logic.mustNavshihKhozer(aceDealerRoom, 1), false);
+
+const keepAceRoom = roomWithHands([
+  [['7', '♥'], ['8', '♥'], ['9', '♥'], ['10', '♥'], ['J', '♥']],
+  [['7', '♠'], ['8', '♠'], ['9', '♠'], ['10', '♠'], ['J', '♠']],
+], '♥');
+keepAceRoom.muushig.trump = { rank: 'A', suit: '♥' };
+keepAceRoom.muushig.entered = { 1: true, 2: true };
+assert.strictEqual(logic.startKhozerPhase(keepAceRoom), true);
+assert.strictEqual(logic.canKeepKhozer(keepAceRoom, 1), false);
+assert.strictEqual(logic.mustNavshihKhozer(keepAceRoom, 1), true);
+
 const payoutRoom = {
   players: [{ playerId: 1 }, { playerId: 2 }],
 };

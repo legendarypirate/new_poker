@@ -394,11 +394,35 @@ function dealMuushigRound(room) {
   return room.muushig;
 }
 
+function isFaceUpTrumpAce(state) {
+  if (!state?.trump || state.trumpTaken) return false;
+  return String(state.trump.rank).toUpperCase() === 'A';
+}
+
+function isDealerPlayer(room, playerId) {
+  const dealer = room.players?.[room.muushig?.dealerIndex];
+  return !!dealer && samePlayerId(dealer.playerId, playerId);
+}
+
 function canNavshihKhozer(room, playerId) {
   const state = room.muushig;
   if (!state || state.phase !== 'khozer') return false;
   if (state.khozerNavshihed || state.trumpTaken || !state.trump) return false;
-  return room.players[state.dealerIndex]?.playerId === playerId;
+  return isDealerPlayer(room, playerId);
+}
+
+function mustNavshihKhozer(room, playerId) {
+  return canNavshihKhozer(room, playerId) && isFaceUpTrumpAce(room.muushig);
+}
+
+function canKeepKhozer(room, playerId) {
+  return canNavshihKhozer(room, playerId) && !isFaceUpTrumpAce(room.muushig);
+}
+
+function lowestKhozerDiscard(hand) {
+  const held = (hand || []).map(normalizeCard);
+  if (!held.length) return null;
+  return held.slice().sort((a, b) => rankValue(a.rank) - rankValue(b.rank))[0];
 }
 
 function navshihKhozer(room, player, cards) {
@@ -474,6 +498,7 @@ function sitOutBlockReason(room, playerId) {
   if (hasDecided(state, playerId)) return 'decided';
   if (room.players.length <= 2) return 'headsUp';
   if (sitOutCount(state, playerId) >= MAX_SIT_OUT_STREAK) return 'streak';
+  if (isDealerPlayer(room, playerId) && isFaceUpTrumpAce(state)) return 'trumpAce';
   const sat = room.players.filter((p) => state.satOut[p.playerId]).length;
   const inPlay = room.players.filter((p) => state.entered[p.playerId]).length;
   const undecided = room.players.length - sat - inPlay;
@@ -824,9 +849,18 @@ function publicState(room) {
       : null,
     sitOutStreak: { ...(state.sitOutStreak || {}) },
     maxSitOutStreak: MAX_SIT_OUT_STREAK,
+    trumpIsAce: isFaceUpTrumpAce(state),
     canNavshihKhozer:
       state.phase === "khozer" && room.players[state.dealerIndex]
         ? canNavshihKhozer(room, room.players[state.dealerIndex].playerId)
+        : false,
+    mustNavshihKhozer:
+      state.phase === "khozer" && room.players[state.dealerIndex]
+        ? mustNavshihKhozer(room, room.players[state.dealerIndex].playerId)
+        : false,
+    canKeepKhozer:
+      state.phase === "khozer" && room.players[state.dealerIndex]
+        ? canKeepKhozer(room, room.players[state.dealerIndex].playerId)
         : false,
     passedThisTrick: state.passedThisTrick || {},
     isLastInTrick: isLastPlayerInTrick(room),
@@ -868,7 +902,12 @@ module.exports = {
   canSitOut,
   sitOutBlockReason,
   sitOutCount,
+  isFaceUpTrumpAce,
+  isDealerPlayer,
   canNavshihKhozer,
+  mustNavshihKhozer,
+  canKeepKhozer,
+  lowestKhozerDiscard,
   navshihKhozer,
   finishKhozerPhase,
   allDecided,
